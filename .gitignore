@@ -41,6 +41,8 @@ _autosave-*
 *-rescue.lib
 fp-info-cache
 *.net
+\#auto_saved_files\#
+*.lck
 
 # Gerber and drill files
 gerber/
