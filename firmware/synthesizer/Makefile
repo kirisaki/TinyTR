@@ -35,6 +35,13 @@ check:
 clean:
 	rm -f *.elf *.hex
 
+test.elf: test.c
+	$(CC) $(CFLAGS) -o $@ $<
+
+test: test.elf
+	$(OBJCOPY) -j .text -j .data -O ihex $< test.hex
+	$(AVRDUDE) -c $(PROGRAMMER) -p t85 -B $(BITCLOCK) -U flash:w:test.hex:i
+
 mute.elf: mute.c
 	$(CC) $(CFLAGS) -o $@ $<
 
