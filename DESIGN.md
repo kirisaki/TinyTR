@@ -19,21 +19,22 @@ This document describes the hardware and communication design.
 PB0 (Pin 5): SDA (I2C communication with other sequencers)
 PB1 (Pin 6): ADC input - 4 buttons (resistor divider)
 PB2 (Pin 7): SCL (I2C communication with other sequencers)
-PB3 (Pin 2): CV output to synthesizer (PWM or R-2R DAC)
-PB4 (Pin 3): ADC input - Accent/LFO amount potentiometer
+PB3 (Pin 2): CV output to synthesizer (PWM)
+PB4 (Pin 3): LED output (rhythm/mode indicator)
 ```
 
 **User Interface:**
 - 4 buttons via resistor divider (PB1):
-  - Button A: Pattern edit/step input
-  - Button B: Pattern edit/step input
-  - Button C: Pattern edit/step input
+  - Button A: Value decrease / Step accent input
+  - Button B: Value increase / Step accent input
+  - Button C: Confirm / Step accent input
   - Mode switch: Switches between editing modes
-    - Pattern editing
+    - Pattern editing (set accent per step)
     - Tempo adjustment
-    - LFO rate adjustment
-- 1 potentiometer (PB4):
-  - Controls accent/LFO intensity
+    - LFO rate and intensity adjustment
+- 1 LED (PB4):
+  - Current step indicator during playback
+  - Mode indicator (blink pattern)
 
 **I2C Communication:**
 - Tempo synchronization between multiple sequencer units
@@ -42,19 +43,33 @@ PB4 (Pin 3): ADC input - Accent/LFO amount potentiometer
 
 ### Synthesizer (ATtiny85)
 
-**Pin Assignment:**
+**Pin Assignment (Planned):**
+```
+PB0 (Pin 5): Voice select button (digital input)
+PB1 (Pin 6): PWM audio output (Timer1 OC1A)
+PB2 (Pin 7): DECAY potentiometer (ADC1)
+PB3 (Pin 2): TONE potentiometer (ADC3)
+PB4 (Pin 3): CV input from sequencer (ADC2, 0-5V)
+PB5 (Pin 1): RESET (kept functional for ISP programming)
+```
+
+**Pin Assignment (Current Implementation):**
 ```
 PB0 (Pin 5): LED output (optional) / MOSI (programming)
 PB1 (Pin 6): MISO (programming)
 PB2 (Pin 7): SCK (programming)
-PB3 (Pin 2): CV input from sequencer (ADC, 0-5V)
-PB4 (Pin 3): PWM audio output
+PB3 (Pin 2): CV input from sequencer (ADC3, 0-5V) - TODO
+PB4 (Pin 3): PWM audio output (Timer1 OC1B) - Current
 ```
 
 **Hardware:**
 - PAM8302 audio amplifier (always ON, no shutdown control)
 - Single voice per chip (kick, snare, hi-hat, etc.)
 - Multiple chips can be driven from one sequencer in parallel
+- Analog post-processing circuits:
+  - Resonance filter circuit (NJM2746M dual op-amp)
+  - Distortion circuit (NJM2746M dual op-amp)
+  - Applied to PWM output before amplification
 
 ## Communication Protocol
 
@@ -127,12 +142,12 @@ Mode:     4.7kΩ  → ~3V
 - Synchronized via I2C for multi-sequencer setups
 
 ### LFO/Accent Control
-- Mode switch enters LFO rate editing mode
-- Buttons adjust LFO frequency
-- Potentiometer (PB4) controls:
-  - LFO intensity
+- Mode switch enters LFO editing mode
+- Buttons adjust:
+  - LFO frequency (rate)
+  - LFO intensity (depth)
   - Global accent amount
-  - Per-step accent modulation
+- Per-step accent set in pattern editing mode
 
 ## Open Design Questions
 
