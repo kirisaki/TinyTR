@@ -1,0 +1,85 @@
+# AVR/Firmware
+*.o
+*.ko
+*.obj
+*.elf
+*.lst
+*.pre
+*.gch
+*.pch
+*.lib
+*.a
+*.la
+*.lo
+*.dll
+*.so
+*.so.*
+*.dylib
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+*.dSYM/
+
+# KiCad
+*.000
+*.bak
+*.bck
+*.kicad_pcb-bak
+*.kicad_sch-bak
+*-backups
+*.kicad_prl
+*.sch-bak
+*~
+_autosave-*
+*.tmp
+*-save.pro
+*-save.kicad_pcb
+*-cache.lib
+*-rescue.lib
+fp-info-cache
+*.net
+
+# Gerber and drill files
+gerber/
+*.gbr
+*.drl
+*.gbrjob
+*.pos
+
+# Netlist files (uncomment if you don't want to track them)
+# *.dsn
+# *.ses
+
+# BOM files
+# *bom.csv
+# *bom.xml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Build123d / CAD exports
+*.step
+*.stp
+*.stl
