@@ -71,10 +71,12 @@ int main(void)
 
         // Rising edge (LOW -> HIGH) = trigger
         if (curr_state && !prev_state) {
-            k_vol = (uint16_t)cv << 8;  // Accent from CV
+            cli();  // Disable interrupts during 16-bit updates
+            k_vol = 65535;
             k_active = 1;
             k_step = param_tone;
             k_phase = 0xC000;
+            sei();  // Re-enable interrupts
         }
 
         prev_state = curr_state;
