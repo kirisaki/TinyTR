@@ -72,7 +72,8 @@ int main(void)
         // Rising edge (LOW -> HIGH) = trigger
         if (curr_state && !prev_state) {
             cli();  // Disable interrupts during 16-bit updates
-            k_vol = 65535;
+            // Accent: CV voltage scales volume (min 50%, max 100%)
+            k_vol = 32768 + ((uint16_t)(cv - CV_THRESHOLD_ON) << 8);
             k_active = 1;
             k_step = param_tone;
             k_phase = 0xC000;
