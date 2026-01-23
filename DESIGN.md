@@ -39,7 +39,31 @@ PB4 (Pin 3): LED output (rhythm/mode indicator)
 **I2C Communication:**
 - Tempo synchronization between multiple sequencer units
 - Enables multi-sequencer jam sessions
-- Protocol: Master sends tempo clock pulses to slaves
+- Uses broadcast (no individual addressing required)
+
+**I2C Sync States:**
+- **Standalone**: Default mode, runs on internal tempo
+- **Primary**: Sends tempo clock via I2C broadcast
+- **Secondary**: Receives clock and syncs to primary
+
+**State Transitions:**
+```
+[Power ON] → [Standalone]
+
+[Standalone] + Mode long-press → [Primary]
+  → Broadcasts tempo clock
+  → Other units automatically become Secondary
+
+[Standalone] + Receive I2C clock → [Secondary]
+  → Syncs to received tempo
+
+[Secondary] + Disconnect I2C + Mode long-press → [Standalone]
+```
+
+**Protocol:**
+- Primary broadcasts beat pulse on each step
+- Secondary advances step on received pulse
+- No address management needed (broadcast only)
 
 ### Synthesizer (ATtiny85)
 
