@@ -18,6 +18,11 @@ const uint8_t sinewave[] PROGMEM = {
 
 // --- Global Variables (for Mixer) ---
 volatile uint16_t tick_counter = 0;
+
+// --- Configurable Parameters (set via ADC) ---
+volatile uint8_t param_decay = 5;      // Decay speed (1=fast, 15=slow)
+volatile uint16_t param_tone = 1000;   // Initial pitch for kick
+
 // Kick
 volatile uint16_t k_phase = 0;
 volatile uint16_t k_step = 0;
@@ -48,14 +53,15 @@ static inline int16_t calc_kick()
     if (!k_active)
         return 0;
 
-    // Pitch sweep downward
-    if (k_step > 50)
+    // Pitch sweep downward (end point linked to param_tone)
+    uint16_t tone_end = param_tone / 20;
+    if (k_step > tone_end)
         k_step--;
 
     // Volume decay
     static uint8_t div = 0;
-    if ((++div & 5) == 0)
-    { // Decay every 8 calls (long decay)
+    if ((++div & param_decay) == 0)
+    { // Decay speed controlled by param_decay
         uint16_t decay = k_vol >> 8;
         if (decay == 0 && k_vol > 0)
             decay = 1;
@@ -199,7 +205,7 @@ static inline void trigger_kick()
 {
     k_active = 1;
     k_vol = 65535;          // Max volume
-    k_step = 1000;          // Initial pitch
+    k_step = param_tone;    // Initial pitch (configurable)
     k_phase = 0xC000;       // Phase reset
     PINB |= (1 << PB0);     // LED blink
 }
