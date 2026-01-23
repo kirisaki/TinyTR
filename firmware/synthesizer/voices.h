@@ -196,8 +196,8 @@ ISR(TIMER0_COMPA_vect)
     if (output > 255)
         output = 255;
 
-    // PWM output
-    OCR1B = (uint8_t)output;
+    // PWM output (OC1A = PB1)
+    OCR1A = (uint8_t)output;
 }
 
 // --- Trigger Functions ---
@@ -207,21 +207,18 @@ static inline void trigger_kick()
     k_vol = 65535;          // Max volume
     k_step = param_tone;    // Initial pitch (configurable)
     k_phase = 0xC000;       // Phase reset
-    PINB |= (1 << PB0);     // LED blink
 }
 
 static inline void trigger_snare()
 {
     s_active = 1;
     s_vol = 40000;          // Volume adjustment
-    PINB |= (1 << PB0);     // LED blink
 }
 
 static inline void trigger_hihat()
 {
     h_active = 1;
     h_vol = 30000;          // Lower volume
-    PINB |= (1 << PB0);     // LED blink
 }
 
 static inline void trigger_hihat_closed()
@@ -229,7 +226,6 @@ static inline void trigger_hihat_closed()
     h_active = 1;
     h_vol = 30000;
     h_decay_speed = 1;      // Decay every 2 calls (fast)
-    PINB |= (1 << PB0);     // LED blink
 }
 
 static inline void trigger_hihat_open()
@@ -237,14 +233,12 @@ static inline void trigger_hihat_open()
     h_active = 1;
     h_vol = 30000;
     h_decay_speed = 7;      // Decay every 8 calls (slow)
-    PINB |= (1 << PB0);     // LED blink
 }
 
 static inline void trigger_clap()
 {
     c_active = 1;
     c_vol = 50000;          // Slightly louder
-    PINB |= (1 << PB0);     // LED blink
 }
 
 // --- Utility Functions ---
