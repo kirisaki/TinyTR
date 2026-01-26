@@ -5,10 +5,12 @@
 // --- Pin Configuration ---
 #define SPEAKER_PIN PB1  // PWM output (OC1A)
 #define CV_INPUT_CH 2    // PB4 = ADC2
+#define DECAY_CH 1       // PB2 = ADC1
+#define TONE_CH 3        // PB3 = ADC3
 
 // --- CV Threshold (with hysteresis) ---
-#define CV_THRESHOLD_ON  20  // ~0.4V to trigger
-#define CV_THRESHOLD_OFF 5   // ~0.1V to reset
+#define CV_THRESHOLD_ON  10  // ~0.2V to trigger
+#define CV_THRESHOLD_OFF 3   // ~0.06V to reset
 
 // --- ADC Functions ---
 uint8_t read_adc(uint8_t channel)
@@ -61,6 +63,24 @@ int main(void)
     while (1)
     {
         update_voice_button();
+
+        // Read DECAY/TONE potentiometers (with settling time)
+        ADMUX = (1 << ADLAR) | DECAY_CH;
+        _delay_us(100);  // Let ADC settle after channel switch
+        uint8_t decay_raw = read_adc(DECAY_CH);
+
+        ADMUX = (1 << ADLAR) | TONE_CH;
+        _delay_us(100);
+        uint8_t tone_raw = read_adc(TONE_CH);
+
+        // Map decay to valid values (3, 7, 15) - longer overall
+        if (decay_raw < 85) param_decay = 3;
+        else if (decay_raw < 170) param_decay = 7;
+        else param_decay = 15;
+
+        // Map tone to frequency range (~half semitone lower)
+        param_tone = 470 + ((uint16_t)tone_raw * 6);
+
         uint8_t cv = read_adc(CV_INPUT_CH);
 
         // State with hysteresis
@@ -76,8 +96,9 @@ int main(void)
         // Rising edge (LOW -> HIGH) = trigger current voice with accent
         if (curr_state && !prev_state) {
             cli();  // Disable interrupts during 16-bit updates
-            // Accent: CV voltage scales volume (min 50%, max 100%)
-            uint16_t accent_vol = 32768 + ((uint16_t)(cv - CV_THRESHOLD_ON) << 8);
+            // Accent: CV voltage scales volume (min 25%, max 100%)
+            // CV 10-255 maps to 16384-65535
+            uint16_t accent_vol = 16384 + ((uint16_t)(cv - CV_THRESHOLD_ON) * 200);
             switch (current_voice) {
                 case 0:  // Kick
                     k_vol = accent_vol;

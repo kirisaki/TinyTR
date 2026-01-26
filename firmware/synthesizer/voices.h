@@ -81,8 +81,8 @@ static inline int16_t calc_kick()
         k_step--;
 
     // Volume decay
-    static uint8_t div = 0;
-    if ((++div & param_decay) == 0)
+    static uint8_t k_div = 0;
+    if ((++k_div & param_decay) == 0)
     { // Decay speed controlled by param_decay
         uint16_t decay = k_vol >> 8;
         if (decay == 0 && k_vol > 0)
@@ -118,8 +118,8 @@ static inline int16_t calc_snare()
         lfsr ^= 0xB400;
 
     // Decay for both components (controlled by param_decay)
-    static uint8_t div = 0;
-    if ((++div & param_decay) == 0)
+    static uint8_t s_div = 0;
+    if ((++s_div & param_decay) == 0)
     {
         // Noise decay (slower)
         uint16_t decay = s_vol >> 8;
@@ -160,10 +160,10 @@ static inline int16_t calc_hihat()
     if (lsb)
         lfsr ^= 0xB400;
 
-    static uint8_t div = 0;
+    static uint8_t h_div = 0;
     // Combine h_decay_speed with param_decay for overall control
     uint8_t decay_mask = h_decay_speed | (param_decay >> 1);
-    if ((++div & decay_mask) == 0)
+    if ((++h_div & decay_mask) == 0)
     {
         uint16_t decay = h_vol >> 7;
         if (decay == 0 && h_vol > 0)
@@ -206,8 +206,8 @@ static inline int16_t calc_clap()
     }
 
     // Sustain phase: normal decay
-    static uint8_t div = 0;
-    if ((++div & (param_decay | 1)) == 0)
+    static uint8_t c_div = 0;
+    if ((++c_div & (param_decay | 1)) == 0)
     {
         uint16_t decay = c_vol >> 8;
         if (decay == 0 && c_vol > 0)
@@ -236,8 +236,8 @@ static inline int16_t calc_tom()
         t_step--;
 
     // Volume decay (controlled by param_decay)
-    static uint8_t div = 0;
-    if ((++div & param_decay) == 0)
+    static uint8_t t_div = 0;
+    if ((++t_div & param_decay) == 0)
     {
         uint16_t decay = t_vol >> 7;
         if (decay == 0 && t_vol > 0)
@@ -264,8 +264,8 @@ static inline int16_t calc_cowbell()
         return 0;
 
     // Volume decay (controlled by param_decay, but faster base)
-    static uint8_t div = 0;
-    if ((++div & (param_decay >> 1 | 1)) == 0)
+    static uint8_t cb_div = 0;
+    if ((++cb_div & (param_decay >> 1 | 1)) == 0)
     {
         uint16_t decay = cb_vol >> 7;
         if (decay == 0 && cb_vol > 0)
@@ -377,7 +377,7 @@ static inline void trigger_cowbell()
     cb_active = 1;
     cb_vol = 45000;
     cb_phase1 = 0x6000;
-    cb_phase2 = 0x6000;
+    cb_phase2 = 0x2000;     // Phase offset for metallic attack
 }
 
 // --- Voice Selection Button Functions ---
