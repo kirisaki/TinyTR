@@ -72,6 +72,8 @@ volatile uint8_t s_active = 0;
 volatile uint16_t h_vol = 0;
 volatile uint8_t h_active = 0;
 volatile uint8_t h_decay_speed = 1; // 1=Short, 3=Long
+volatile uint16_t h_phase1 = 0;     // Metallic tone oscillator 1
+volatile uint16_t h_phase2 = 0;     // Metallic tone oscillator 2
 
 // Clap
 volatile uint16_t c_vol = 0;
@@ -189,28 +191,43 @@ static inline int16_t calc_hihat()
     if (!h_active)
         return 0;
 
-    uint8_t lsb = lfsr & 1;
+    // Noise generation
+    uint8_t h_lsb = lfsr & 1;
     lfsr >>= 1;
-    if (lsb)
+    if (h_lsb)
         lfsr ^= 0xB400;
 
+    // Volume decay
     static uint8_t h_div = 0;
-    // Combine h_decay_speed with h_decay for open/closed control
     uint8_t h_decay_mask = h_decay_speed | h_decay;
     if ((++h_div & h_decay_mask) == 0)
     {
-        uint16_t decay = h_vol >> H_DECAY_SHIFT;
-        if (decay == 0 && h_vol > 0)
-            decay = 1;
-        if (h_vol > decay)
-            h_vol -= decay;
+        uint16_t h_decay_amt = h_vol >> H_DECAY_SHIFT;
+        if (h_decay_amt == 0 && h_vol > 0)
+            h_decay_amt = 1;
+        if (h_vol > h_decay_amt)
+            h_vol -= h_decay_amt;
         else
         {
             h_vol = 0;
             h_active = 0;
         }
     }
-    return (lfsr & 1) ? (h_vol >> 8) : 0;
+
+    // Metallic tones (very high freq for sizzle)
+    h_phase1 += 9000;   // ~2740 Hz
+    h_phase2 += 11700;  // ~3560 Hz
+    uint8_t h_tone1 = (h_phase1 >> 8) & 0x80 ? 128 : 0;
+    uint8_t h_tone2 = (h_phase2 >> 8) & 0x80 ? 128 : 0;
+
+    // Mix: tones XOR + noise
+    uint8_t h_metal = (h_tone1 ^ h_tone2) >> 1;  // More metal (was >> 2)
+    uint8_t h_noise = (lfsr & 0x7F);  // 7-bit noise
+
+    // Blend: balanced
+    int16_t h_out = ((h_metal + h_noise) * (h_vol >> 8)) >> 8;
+
+    return h_out;
 }
 
 // 4. Clap calculation: Multiple bursts then decay
@@ -374,6 +391,8 @@ static inline void trigger_hihat()
 {
     h_active = 1;
     h_vol = H_VOL_INIT;
+    h_phase1 = 0;
+    h_phase2 = 0;  // No offset for softer attack
 }
 
 static inline void trigger_hihat_closed()
@@ -381,6 +400,8 @@ static inline void trigger_hihat_closed()
     h_active = 1;
     h_vol = H_VOL_INIT;
     h_decay_speed = 1;
+    h_phase1 = 0;
+    h_phase2 = 0;
 }
 
 static inline void trigger_hihat_open()
@@ -388,6 +409,8 @@ static inline void trigger_hihat_open()
     h_active = 1;
     h_vol = H_VOL_INIT;
     h_decay_speed = 7;
+    h_phase1 = 0;
+    h_phase2 = 0;
 }
 
 static inline void trigger_clap()
