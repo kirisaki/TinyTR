@@ -49,6 +49,8 @@ volatile uint8_t h_decay_speed = 1; // 1=Short, 3=Long
 // Clap
 volatile uint16_t c_vol = 0;
 volatile uint8_t c_active = 0;
+volatile uint8_t c_stutter = 0;     // Stutter counter for clap bursts
+volatile uint16_t c_stutter_timer = 0;
 
 // Tom
 volatile uint16_t t_phase = 0;
@@ -115,9 +117,9 @@ static inline int16_t calc_snare()
     if (lsb)
         lfsr ^= 0xB400;
 
-    // Decay for both components
+    // Decay for both components (controlled by param_decay)
     static uint8_t div = 0;
-    if ((++div & 3) == 0)
+    if ((++div & param_decay) == 0)
     {
         // Noise decay (slower)
         uint16_t decay = s_vol >> 8;
@@ -136,8 +138,8 @@ static inline int16_t calc_snare()
             s_active = 0;
     }
 
-    // Tonal body (~180Hz for snare punch)
-    s_phase += 590;
+    // Tonal body (pitch controlled by param_tone, scaled for snare range)
+    s_phase += (param_tone >> 1);  // ~150-400Hz range
     uint8_t tone_raw = pgm_read_byte(&sinewave[(s_phase >> 8) & 0x7F]);
     int16_t tone_out = ((tone_raw * (s_tone_vol >> 8)) >> 8);
 
@@ -159,8 +161,9 @@ static inline int16_t calc_hihat()
         lfsr ^= 0xB400;
 
     static uint8_t div = 0;
-    // decay_speed: 1=every 2 calls (closed), 3=every 4 calls (open), 7=every 8 calls
-    if ((++div & h_decay_speed) == 0)
+    // Combine h_decay_speed with param_decay for overall control
+    uint8_t decay_mask = h_decay_speed | (param_decay >> 1);
+    if ((++div & decay_mask) == 0)
     {
         uint16_t decay = h_vol >> 7;
         if (decay == 0 && h_vol > 0)
@@ -176,22 +179,36 @@ static inline int16_t calc_hihat()
     return (lfsr & 1) ? (h_vol >> 8) : 0;
 }
 
-// 4. Clap calculation
+// 4. Clap calculation: Multiple bursts then decay
 static inline int16_t calc_clap()
 {
     if (!c_active)
         return 0;
 
-    // Noise generation (shared with Snare/Hat)
+    // Noise generation
     uint8_t lsb = lfsr & 1;
     lfsr >>= 1;
     if (lsb)
         lfsr ^= 0xB400;
 
-    // Clap envelope
+    c_stutter_timer++;
+
+    // Stutter phase: 3 short bursts with gaps
+    if (c_stutter > 0) {
+        // Each burst is ~60 samples on, ~140 samples off (~10ms total per burst)
+        if (c_stutter_timer < 60) {
+            return (lfsr & 1) ? (c_vol >> 8) : 0;
+        } else if (c_stutter_timer > 200) {
+            c_stutter--;
+            c_stutter_timer = 0;
+        }
+        return 0;  // Gap between bursts
+    }
+
+    // Sustain phase: normal decay
     static uint8_t div = 0;
-    if ((++div & 7) == 0)
-    { // Every 8 calls (slightly longer decay)
+    if ((++div & (param_decay | 1)) == 0)
+    {
         uint16_t decay = c_vol >> 8;
         if (decay == 0 && c_vol > 0)
             decay = 1;
@@ -204,8 +221,7 @@ static inline int16_t calc_clap()
         }
     }
 
-    // Adjusted shift from >>7 to >>8 for level matching
-    return ((lfsr & 3) == 0) ? (c_vol >> 8) : 0;
+    return (lfsr & 1) ? (c_vol >> 8) : 0;
 }
 
 // 5. Tom calculation: Similar to kick but higher pitch, faster decay
@@ -214,13 +230,14 @@ static inline int16_t calc_tom()
     if (!t_active)
         return 0;
 
-    // Pitch sweep downward (faster than kick)
-    if (t_step > 80)
+    // Pitch sweep downward (end point linked to param_tone)
+    uint16_t tone_end = param_tone / 10;  // Higher end than kick
+    if (t_step > tone_end)
         t_step--;
 
-    // Volume decay (faster than kick)
+    // Volume decay (controlled by param_decay)
     static uint8_t div = 0;
-    if ((++div & 3) == 0)
+    if ((++div & param_decay) == 0)
     {
         uint16_t decay = t_vol >> 7;
         if (decay == 0 && t_vol > 0)
@@ -246,9 +263,9 @@ static inline int16_t calc_cowbell()
     if (!cb_active)
         return 0;
 
-    // Volume decay (very fast for metallic sound)
+    // Volume decay (controlled by param_decay, but faster base)
     static uint8_t div = 0;
-    if ((++div & 1) == 0)
+    if ((++div & (param_decay >> 1 | 1)) == 0)
     {
         uint16_t decay = cb_vol >> 7;
         if (decay == 0 && cb_vol > 0)
@@ -262,10 +279,11 @@ static inline int16_t calc_cowbell()
         }
     }
 
-    // Two oscillators: 587Hz and 845Hz (at 20kHz sample rate)
-    // step = freq * 65536 / 20000
-    cb_phase1 += 1925;  // ~587Hz
-    cb_phase2 += 2770;  // ~845Hz
+    // Two oscillators with pitch controlled by param_tone
+    // Base: 587Hz and 845Hz, shifted by param_tone
+    uint16_t base_step = 1500 + (param_tone >> 1);  // Pitch shift
+    cb_phase1 += base_step;
+    cb_phase2 += base_step + (base_step >> 1);  // 1.5x ratio for detune
 
     uint8_t raw1 = pgm_read_byte(&sinewave[(cb_phase1 >> 8) & 0x7F]);
     uint8_t raw2 = pgm_read_byte(&sinewave[(cb_phase2 >> 8) & 0x7F]);
@@ -342,13 +360,15 @@ static inline void trigger_clap()
 {
     c_active = 1;
     c_vol = 50000;          // Slightly louder
+    c_stutter = 3;          // 3 initial bursts
+    c_stutter_timer = 0;
 }
 
 static inline void trigger_tom()
 {
     t_active = 1;
     t_vol = 55000;          // Similar to kick
-    t_step = 600;           // Higher starting pitch than kick
+    t_step = param_tone + 200;  // Higher starting pitch than kick, linked to TONE
     t_phase = 0x6000;       // Start at trough
 }
 

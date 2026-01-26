@@ -98,11 +98,13 @@ int main(void)
                 case 3:  // Clap
                     c_vol = (uint16_t)(((uint32_t)accent_vol * 50000) >> 16);
                     c_active = 1;
+                    c_stutter = 3;
+                    c_stutter_timer = 0;
                     break;
                 case 4:  // Tom
                     t_vol = (uint16_t)(((uint32_t)accent_vol * 55000) >> 16);
                     t_active = 1;
-                    t_step = 600;
+                    t_step = param_tone + 200;  // Linked to TONE
                     t_phase = 0x6000;
                     break;
                 case 5:  // Cowbell
