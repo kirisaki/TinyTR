@@ -102,10 +102,13 @@ static inline int16_t calc_kick()
     if (!k_active)
         return 0;
 
-    // Pitch sweep downward (end point linked to param_tone)
+    // Pitch sweep downward (proportional - fast at high pitch, slow at low)
     uint16_t tone_end = param_tone / 20;
-    if (k_step > tone_end)
-        k_step--;
+    if (k_step > tone_end) {
+        uint16_t sweep = k_step >> 7;  // ~1% per sample
+        if (sweep == 0) sweep = 1;
+        k_step -= sweep;
+    }
 
     // Volume decay
     static uint8_t k_div = 0;
@@ -125,11 +128,15 @@ static inline int16_t calc_kick()
 
     // Waveform generation
     k_phase += k_step;
-    // Read from PROGMEM
     uint8_t raw = pgm_read_byte(&sinewave[(k_phase >> 8) & 0x7F]);
+    int16_t current = ((raw * (k_vol >> 8)) >> 8);
 
-    // Apply volume (unipolar output)
-    return ((raw * (k_vol >> 8)) >> 8);
+    // Low-pass filter (light: 50% current, 50% previous)
+    static int16_t k_lpf = 0;
+    int16_t k_filtered = (current + k_lpf) >> 1;
+    k_lpf = current;
+
+    return k_filtered;
 }
 
 // 2. Snare calculation: Tonal body + Noise
@@ -352,7 +359,7 @@ static inline void trigger_kick()
     k_active = 1;
     k_vol = K_VOL_INIT;
     k_step = param_tone;
-    k_phase = 0x6000;
+    k_phase = 0x0000;   // Start at zero-crossing (value 128)
 }
 
 static inline void trigger_snare()
