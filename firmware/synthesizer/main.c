@@ -73,10 +73,19 @@ int main(void)
         _delay_us(100);
         uint8_t tone_raw = read_adc(TONE_CH);
 
-        // Map decay to valid values (3, 7, 15) - longer overall
+        // Map decay to valid values (3, 7, 15)
         if (decay_raw < 85) param_decay = 3;
         else if (decay_raw < 170) param_decay = 7;
         else param_decay = 15;
+
+        // Map param_decay to per-voice decay (cowbell as reference)
+        // param_decay: 3, 7, 15 → cb_decay: 1, 3, 7 (shortest, reference)
+        cb_decay = (param_decay >> 1) | 1;  // Cowbell: reference (1, 3, 7)
+        h_decay = (param_decay >> 1) | 1;   // Hihat: same as cowbell
+        c_decay = (param_decay >> 1) | 1;   // Clap: same as cowbell
+        t_decay = param_decay >> 1;          // Tom: slightly longer (1, 3, 7)
+        s_decay = param_decay >> 1;          // Snare: slightly longer
+        k_decay = param_decay;               // Kick: longest (3, 7, 15)
 
         // Map tone to frequency range (~half semitone lower)
         param_tone = 470 + ((uint16_t)tone_raw * 6);

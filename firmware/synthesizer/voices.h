@@ -23,11 +23,38 @@ volatile uint16_t tick_counter = 0;
 volatile uint8_t param_decay = 7;      // Decay speed (must be 2^n-1: 1,3,7,15)
 volatile uint16_t param_tone = 1000;   // Initial pitch for kick
 
+// === TUNING CONSTANTS ===
+// Initial volumes (0-65535)
+#define K_VOL_INIT      65535   // Kick: max
+#define S_VOL_INIT      25000   // Snare noise (was 35000, reduce crash)
+#define S_TONE_VOL_INIT 50000   // Snare tone body
+#define H_VOL_INIT      20000   // Hihat (was 30000, more subtle)
+#define C_VOL_INIT      50000   // Clap
+#define T_VOL_INIT      55000   // Tom
+#define CB_VOL_INIT     45000   // Cowbell
+
+// Decay rate shifts (higher = slower decay)
+#define K_DECAY_SHIFT   7       // Kick (was 8, faster now)
+#define S_NOISE_SHIFT   8       // Snare noise
+#define S_TONE_SHIFT    7       // Snare tone (was 6, slower = less crash)
+#define H_DECAY_SHIFT   7       // Hihat
+#define C_DECAY_SHIFT   8       // Clap
+#define T_DECAY_SHIFT   7       // Tom
+#define CB_DECAY_SHIFT  7       // Cowbell
+
 // --- Voice Selection Button ---
 #define VOICE_BTN_PIN PB0
 #define NUM_VOICES 6
 volatile uint8_t current_voice = 0;    // 0=kick, 1=snare, 2=hihat, 3=clap, 4=tom, 5=cowbell
 volatile uint8_t btn_prev_state = 1;   // Previous button state (1=released)
+
+// Per-voice decay masks (set from param_decay in main loop)
+volatile uint8_t k_decay = 7;      // Kick: longer
+volatile uint8_t s_decay = 7;      // Snare
+volatile uint8_t h_decay = 3;      // Hi-Hat: shorter
+volatile uint8_t c_decay = 3;      // Clap: shorter
+volatile uint8_t t_decay = 7;      // Tom
+volatile uint8_t cb_decay = 3;     // Cowbell: shorter
 
 // Kick
 volatile uint16_t k_phase = 0;
@@ -82,9 +109,9 @@ static inline int16_t calc_kick()
 
     // Volume decay
     static uint8_t k_div = 0;
-    if ((++k_div & param_decay) == 0)
-    { // Decay speed controlled by param_decay
-        uint16_t decay = k_vol >> 8;
+    if ((++k_div & k_decay) == 0)
+    {
+        uint16_t decay = k_vol >> K_DECAY_SHIFT;
         if (decay == 0 && k_vol > 0)
             decay = 1;
         if (k_vol > decay)
@@ -117,18 +144,18 @@ static inline int16_t calc_snare()
     if (lsb)
         lfsr ^= 0xB400;
 
-    // Decay for both components (controlled by param_decay)
+    // Decay for both components
     static uint8_t s_div = 0;
-    if ((++s_div & param_decay) == 0)
+    if ((++s_div & s_decay) == 0)
     {
-        // Noise decay (slower)
-        uint16_t decay = s_vol >> 8;
+        // Noise decay
+        uint16_t decay = s_vol >> S_NOISE_SHIFT;
         if (decay == 0 && s_vol > 0) decay = 1;
         if (s_vol > decay) s_vol -= decay;
         else s_vol = 0;
 
-        // Tone decay (faster)
-        uint16_t tone_decay = s_tone_vol >> 6;
+        // Tone decay
+        uint16_t tone_decay = s_tone_vol >> S_TONE_SHIFT;
         if (tone_decay == 0 && s_tone_vol > 0) tone_decay = 1;
         if (s_tone_vol > tone_decay) s_tone_vol -= tone_decay;
         else s_tone_vol = 0;
@@ -143,8 +170,8 @@ static inline int16_t calc_snare()
     uint8_t tone_raw = pgm_read_byte(&sinewave[(s_phase >> 8) & 0x7F]);
     int16_t tone_out = ((tone_raw * (s_tone_vol >> 8)) >> 8);
 
-    // Noise output
-    int16_t noise_out = (lfsr & 1) ? (s_vol >> 8) : 0;
+    // Noise output (use 8 bits from LFSR for finer grain)
+    int16_t noise_out = ((lfsr & 0xFF) * (s_vol >> 8)) >> 8;
 
     return tone_out + noise_out;
 }
@@ -161,11 +188,11 @@ static inline int16_t calc_hihat()
         lfsr ^= 0xB400;
 
     static uint8_t h_div = 0;
-    // Combine h_decay_speed with param_decay for overall control
-    uint8_t decay_mask = h_decay_speed | (param_decay >> 1);
-    if ((++h_div & decay_mask) == 0)
+    // Combine h_decay_speed with h_decay for open/closed control
+    uint8_t h_decay_mask = h_decay_speed | h_decay;
+    if ((++h_div & h_decay_mask) == 0)
     {
-        uint16_t decay = h_vol >> 7;
+        uint16_t decay = h_vol >> H_DECAY_SHIFT;
         if (decay == 0 && h_vol > 0)
             decay = 1;
         if (h_vol > decay)
@@ -207,9 +234,9 @@ static inline int16_t calc_clap()
 
     // Sustain phase: normal decay
     static uint8_t c_div = 0;
-    if ((++c_div & (param_decay | 1)) == 0)
+    if ((++c_div & c_decay) == 0)
     {
-        uint16_t decay = c_vol >> 8;
+        uint16_t decay = c_vol >> C_DECAY_SHIFT;
         if (decay == 0 && c_vol > 0)
             decay = 1;
         if (c_vol > decay)
@@ -235,11 +262,11 @@ static inline int16_t calc_tom()
     if (t_step > tone_end)
         t_step--;
 
-    // Volume decay (controlled by param_decay)
+    // Volume decay
     static uint8_t t_div = 0;
-    if ((++t_div & param_decay) == 0)
+    if ((++t_div & t_decay) == 0)
     {
-        uint16_t decay = t_vol >> 7;
+        uint16_t decay = t_vol >> T_DECAY_SHIFT;
         if (decay == 0 && t_vol > 0)
             decay = 1;
         if (t_vol > decay)
@@ -263,11 +290,11 @@ static inline int16_t calc_cowbell()
     if (!cb_active)
         return 0;
 
-    // Volume decay (controlled by param_decay, but faster base)
+    // Volume decay
     static uint8_t cb_div = 0;
-    if ((++cb_div & (param_decay >> 1 | 1)) == 0)
+    if ((++cb_div & cb_decay) == 0)
     {
-        uint16_t decay = cb_vol >> 7;
+        uint16_t decay = cb_vol >> CB_DECAY_SHIFT;
         if (decay == 0 && cb_vol > 0)
             decay = 1;
         if (cb_vol > decay)
@@ -323,61 +350,61 @@ ISR(TIMER0_COMPA_vect)
 static inline void trigger_kick()
 {
     k_active = 1;
-    k_vol = 65535;          // Max volume
-    k_step = param_tone;    // Initial pitch (configurable)
-    k_phase = 0x6000;       // Start at trough for smooth attack
+    k_vol = K_VOL_INIT;
+    k_step = param_tone;
+    k_phase = 0x6000;
 }
 
 static inline void trigger_snare()
 {
     s_active = 1;
-    s_vol = 35000;          // Noise volume
-    s_tone_vol = 50000;     // Tonal body (louder, decays faster)
+    s_vol = S_VOL_INIT;
+    s_tone_vol = S_TONE_VOL_INIT;
     s_phase = 0x6000;
 }
 
 static inline void trigger_hihat()
 {
     h_active = 1;
-    h_vol = 30000;          // Lower volume
+    h_vol = H_VOL_INIT;
 }
 
 static inline void trigger_hihat_closed()
 {
     h_active = 1;
-    h_vol = 30000;
-    h_decay_speed = 1;      // Decay every 2 calls (fast)
+    h_vol = H_VOL_INIT;
+    h_decay_speed = 1;
 }
 
 static inline void trigger_hihat_open()
 {
     h_active = 1;
-    h_vol = 30000;
-    h_decay_speed = 7;      // Decay every 8 calls (slow)
+    h_vol = H_VOL_INIT;
+    h_decay_speed = 7;
 }
 
 static inline void trigger_clap()
 {
     c_active = 1;
-    c_vol = 50000;          // Slightly louder
-    c_stutter = 3;          // 3 initial bursts
+    c_vol = C_VOL_INIT;
+    c_stutter = 3;
     c_stutter_timer = 0;
 }
 
 static inline void trigger_tom()
 {
     t_active = 1;
-    t_vol = 55000;          // Similar to kick
-    t_step = param_tone + 200;  // Higher starting pitch than kick, linked to TONE
-    t_phase = 0x6000;       // Start at trough
+    t_vol = T_VOL_INIT;
+    t_step = param_tone + 200;
+    t_phase = 0x6000;
 }
 
 static inline void trigger_cowbell()
 {
     cb_active = 1;
-    cb_vol = 45000;
+    cb_vol = CB_VOL_INIT;
     cb_phase1 = 0x6000;
-    cb_phase2 = 0x2000;     // Phase offset for metallic attack
+    cb_phase2 = 0x2000;
 }
 
 // --- Voice Selection Button Functions ---
