@@ -20,7 +20,7 @@ const uint8_t sinewave[] PROGMEM = {
 volatile uint16_t tick_counter = 0;
 
 // --- Configurable Parameters (set via ADC) ---
-volatile uint8_t param_decay = 5;      // Decay speed (1=fast, 15=slow)
+volatile uint8_t param_decay = 7;      // Decay speed (must be 2^n-1: 1,3,7,15)
 volatile uint16_t param_tone = 1000;   // Initial pitch for kick
 
 // Kick
@@ -206,7 +206,7 @@ static inline void trigger_kick()
     k_active = 1;
     k_vol = 65535;          // Max volume
     k_step = param_tone;    // Initial pitch (configurable)
-    k_phase = 0xC000;       // Phase reset
+    k_phase = 0x6000;       // Start at trough for smooth attack
 }
 
 static inline void trigger_snare()

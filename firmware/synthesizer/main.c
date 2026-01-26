@@ -76,7 +76,7 @@ int main(void)
             k_vol = 32768 + ((uint16_t)(cv - CV_THRESHOLD_ON) << 8);
             k_active = 1;
             k_step = param_tone;
-            k_phase = 0xC000;
+            k_phase = 0x6000;  // Start at trough for smooth attack
             sei();  // Re-enable interrupts
         }
 

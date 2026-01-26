@@ -53,11 +53,13 @@ void update_params()
     uint8_t tone_raw = read_adc(TONE_POT_CH);
 
     // Convert to parameter ranges
-    // Decay: 1-15 (higher = slower decay)
-    param_decay = (decay_raw >> 4) | 1;
+    // Decay: must be 2^n-1, max 7 to avoid artifacts
+    uint8_t decay_idx = decay_raw >> 6;  // 0-3
+    if (decay_idx > 2) decay_idx = 2;    // cap at 2
+    param_decay = (1 << (decay_idx + 1)) - 1;  // 1, 3, 7
 
-    // Tone: 500-2500 (higher = higher pitch)
-    param_tone = 500 + ((uint16_t)tone_raw << 3);
+    // Tone: 700-1700 (narrower range to avoid artifacts)
+    param_tone = 700 + ((uint16_t)tone_raw << 2);
 }
 
 // --- Wait with continuous pot reading ---
