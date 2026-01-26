@@ -43,6 +43,9 @@ void setup()
     // PB1: PWM output, PB2/PB3: ADC input (default)
     DDRB |= (1 << SPEAKER_PIN);
 
+    // 5. Voice selection button
+    setup_voice_button();
+
     sei(); // Enable interrupts
 }
 
@@ -62,13 +65,14 @@ void update_params()
     param_tone = 700 + ((uint16_t)tone_raw << 2);
 }
 
-// --- Wait with continuous pot reading ---
+// --- Wait with continuous pot/button reading ---
 void wait_and_update(uint16_t ms)
 {
     uint16_t target_ticks = ms * 20;
     tick_counter = 0;
     while (tick_counter < target_ticks) {
         update_params();
+        update_voice_button();
     }
 }
 
@@ -80,10 +84,10 @@ int main(void)
 
     while (1)
     {
-        // 16-beat pattern: kick on 1, 5, 9, 13 (four-on-the-floor)
+        // 16-beat pattern: trigger on 1, 5, 9, 13 (four-on-the-floor)
         for (uint8_t step = 0; step < 16; step++) {
             if ((step & 3) == 0) {
-                trigger_kick();
+                trigger_current_voice();
             }
             wait_and_update(step_delay);
         }

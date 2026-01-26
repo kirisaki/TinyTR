@@ -23,6 +23,12 @@ volatile uint16_t tick_counter = 0;
 volatile uint8_t param_decay = 7;      // Decay speed (must be 2^n-1: 1,3,7,15)
 volatile uint16_t param_tone = 1000;   // Initial pitch for kick
 
+// --- Voice Selection Button ---
+#define VOICE_BTN_PIN PB0
+#define NUM_VOICES 6
+volatile uint8_t current_voice = 0;    // 0=kick, 1=snare, 2=hihat, 3=clap, 4=tom, 5=cowbell
+volatile uint8_t btn_prev_state = 1;   // Previous button state (1=released)
+
 // Kick
 volatile uint16_t k_phase = 0;
 volatile uint16_t k_step = 0;
@@ -30,7 +36,9 @@ volatile uint16_t k_vol = 0;
 volatile uint8_t k_active = 0;
 
 // Snare
-volatile uint16_t s_vol = 0;
+volatile uint16_t s_vol = 0;        // Noise volume
+volatile uint16_t s_tone_vol = 0;   // Tonal body volume
+volatile uint16_t s_phase = 0;
 volatile uint8_t s_active = 0;
 
 // Hi-Hat
@@ -41,6 +49,18 @@ volatile uint8_t h_decay_speed = 1; // 1=Short, 3=Long
 // Clap
 volatile uint16_t c_vol = 0;
 volatile uint8_t c_active = 0;
+
+// Tom
+volatile uint16_t t_phase = 0;
+volatile uint16_t t_step = 0;
+volatile uint16_t t_vol = 0;
+volatile uint8_t t_active = 0;
+
+// Cowbell (two oscillators)
+volatile uint16_t cb_phase1 = 0;
+volatile uint16_t cb_phase2 = 0;
+volatile uint16_t cb_vol = 0;
+volatile uint8_t cb_active = 0;
 
 // Noise Generator (shared by Snare/Hat/Clap)
 volatile uint16_t lfsr = 0xACE1;
@@ -83,36 +103,48 @@ static inline int16_t calc_kick()
     return ((raw * (k_vol >> 8)) >> 8);
 }
 
-// 2. Snare calculation: Noise + Fast decay
+// 2. Snare calculation: Tonal body + Noise
 static inline int16_t calc_snare()
 {
     if (!s_active)
         return 0;
 
-    // Shared noise generation (LFSR)
+    // Noise generation (LFSR)
     uint8_t lsb = lfsr & 1;
     lfsr >>= 1;
     if (lsb)
         lfsr ^= 0xB400;
 
-    // Volume decay
+    // Decay for both components
     static uint8_t div = 0;
     if ((++div & 3) == 0)
-    { // Every 4 calls (medium decay)
+    {
+        // Noise decay (slower)
         uint16_t decay = s_vol >> 8;
-        if (decay == 0 && s_vol > 0)
-            decay = 1;
-        if (s_vol > decay)
-            s_vol -= decay;
-        else
-        {
-            s_vol = 0;
+        if (decay == 0 && s_vol > 0) decay = 1;
+        if (s_vol > decay) s_vol -= decay;
+        else s_vol = 0;
+
+        // Tone decay (faster)
+        uint16_t tone_decay = s_tone_vol >> 6;
+        if (tone_decay == 0 && s_tone_vol > 0) tone_decay = 1;
+        if (s_tone_vol > tone_decay) s_tone_vol -= tone_decay;
+        else s_tone_vol = 0;
+
+        // Deactivate when both are done
+        if (s_vol == 0 && s_tone_vol == 0)
             s_active = 0;
-        }
     }
 
-    // Output noise
-    return (lfsr & 1) ? (s_vol >> 8) : 0;
+    // Tonal body (~180Hz for snare punch)
+    s_phase += 590;
+    uint8_t tone_raw = pgm_read_byte(&sinewave[(s_phase >> 8) & 0x7F]);
+    int16_t tone_out = ((tone_raw * (s_tone_vol >> 8)) >> 8);
+
+    // Noise output
+    int16_t noise_out = (lfsr & 1) ? (s_vol >> 8) : 0;
+
+    return tone_out + noise_out;
 }
 
 // 3. Hi-Hat calculation (Shared for Open/Closed)
@@ -176,6 +208,73 @@ static inline int16_t calc_clap()
     return ((lfsr & 3) == 0) ? (c_vol >> 8) : 0;
 }
 
+// 5. Tom calculation: Similar to kick but higher pitch, faster decay
+static inline int16_t calc_tom()
+{
+    if (!t_active)
+        return 0;
+
+    // Pitch sweep downward (faster than kick)
+    if (t_step > 80)
+        t_step--;
+
+    // Volume decay (faster than kick)
+    static uint8_t div = 0;
+    if ((++div & 3) == 0)
+    {
+        uint16_t decay = t_vol >> 7;
+        if (decay == 0 && t_vol > 0)
+            decay = 1;
+        if (t_vol > decay)
+            t_vol -= decay;
+        else
+        {
+            t_vol = 0;
+            t_active = 0;
+        }
+    }
+
+    // Waveform generation
+    t_phase += t_step;
+    uint8_t raw = pgm_read_byte(&sinewave[(t_phase >> 8) & 0x7F]);
+    return ((raw * (t_vol >> 8)) >> 8);
+}
+
+// 6. Cowbell calculation: Two detuned oscillators
+static inline int16_t calc_cowbell()
+{
+    if (!cb_active)
+        return 0;
+
+    // Volume decay (very fast for metallic sound)
+    static uint8_t div = 0;
+    if ((++div & 1) == 0)
+    {
+        uint16_t decay = cb_vol >> 7;
+        if (decay == 0 && cb_vol > 0)
+            decay = 1;
+        if (cb_vol > decay)
+            cb_vol -= decay;
+        else
+        {
+            cb_vol = 0;
+            cb_active = 0;
+        }
+    }
+
+    // Two oscillators: 587Hz and 845Hz (at 20kHz sample rate)
+    // step = freq * 65536 / 20000
+    cb_phase1 += 1925;  // ~587Hz
+    cb_phase2 += 2770;  // ~845Hz
+
+    uint8_t raw1 = pgm_read_byte(&sinewave[(cb_phase1 >> 8) & 0x7F]);
+    uint8_t raw2 = pgm_read_byte(&sinewave[(cb_phase2 >> 8) & 0x7F]);
+
+    // Mix both oscillators
+    uint16_t mixed = ((uint16_t)raw1 + raw2) >> 1;
+    return ((mixed * (cb_vol >> 8)) >> 8);
+}
+
 // --- Interrupt Mixer (20kHz) ---
 ISR(TIMER0_COMPA_vect)
 {
@@ -187,6 +286,8 @@ ISR(TIMER0_COMPA_vect)
     output += calc_snare();
     output += calc_hihat();
     output += calc_clap();
+    output += calc_tom();
+    output += calc_cowbell();
 
     // Overflow protection after mixing
     // Divide by 2 to create headroom since sum can exceed 255
@@ -212,7 +313,9 @@ static inline void trigger_kick()
 static inline void trigger_snare()
 {
     s_active = 1;
-    s_vol = 40000;          // Volume adjustment
+    s_vol = 35000;          // Noise volume
+    s_tone_vol = 50000;     // Tonal body (louder, decays faster)
+    s_phase = 0x6000;
 }
 
 static inline void trigger_hihat()
@@ -239,6 +342,52 @@ static inline void trigger_clap()
 {
     c_active = 1;
     c_vol = 50000;          // Slightly louder
+}
+
+static inline void trigger_tom()
+{
+    t_active = 1;
+    t_vol = 55000;          // Similar to kick
+    t_step = 600;           // Higher starting pitch than kick
+    t_phase = 0x6000;       // Start at trough
+}
+
+static inline void trigger_cowbell()
+{
+    cb_active = 1;
+    cb_vol = 45000;
+    cb_phase1 = 0x6000;
+    cb_phase2 = 0x6000;
+}
+
+// --- Voice Selection Button Functions ---
+static inline void setup_voice_button()
+{
+    DDRB &= ~(1 << VOICE_BTN_PIN);   // Input
+    PORTB |= (1 << VOICE_BTN_PIN);   // Internal pull-up enabled
+}
+
+static inline void update_voice_button()
+{
+    uint8_t btn_state = (PINB >> VOICE_BTN_PIN) & 1;  // 0=pressed, 1=released
+
+    // Detect falling edge (released -> pressed)
+    if (btn_state == 0 && btn_prev_state == 1) {
+        current_voice = (current_voice + 1) % NUM_VOICES;
+    }
+    btn_prev_state = btn_state;
+}
+
+static inline void trigger_current_voice()
+{
+    switch (current_voice) {
+        case 0: trigger_kick(); break;
+        case 1: trigger_snare(); break;
+        case 2: trigger_hihat(); break;
+        case 3: trigger_clap(); break;
+        case 4: trigger_tom(); break;
+        case 5: trigger_cowbell(); break;
+    }
 }
 
 // --- Utility Functions ---
