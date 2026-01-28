@@ -438,6 +438,8 @@ static inline void trigger_cowbell()
 }
 
 // --- Voice Selection Button Functions ---
+static inline void trigger_current_voice();  // Forward declaration
+
 static inline void setup_voice_button()
 {
     DDRB &= ~(1 << VOICE_BTN_PIN);   // Input
@@ -451,6 +453,7 @@ static inline void update_voice_button()
     // Detect falling edge (released -> pressed)
     if (btn_state == 0 && btn_prev_state == 1) {
         current_voice = (current_voice + 1) % NUM_VOICES;
+        trigger_current_voice();  // Play sound to confirm selection
     }
     btn_prev_state = btn_state;
 }
