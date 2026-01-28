@@ -35,13 +35,11 @@
 #define CV_ACCENT 255 // Full accent for now (LFO later)
 
 // === LED Brightness ===
-#define LED_BEAT1 255 // Beat 1: bright
-#define LED_BEAT2 0   // Beat 2: off
-#define LED_BEAT3 30  // Beat 3: dim
-#define LED_BEAT4 0   // Beat 4: off
+#define LED_BAR_HEAD 255  // Bar start (step 0, 16): bright
+#define LED_BEAT 15       // Other 8th notes: dim
 
 // === Pattern ===
-volatile uint16_t pattern = 0x0000; // 16 steps, 1 bit each
+volatile uint32_t pattern = 0x00000000; // 32 steps, 1 bit each
 volatile uint8_t current_step = 0;
 volatile uint16_t tick_count = 0;
 volatile uint8_t step_triggered = 0; // Flag: step just changed
@@ -51,7 +49,7 @@ volatile uint8_t pattern_dirty = 0; // Flag: pattern changed, needs save
 // === EEPROM ===
 #define EEPROM_MAGIC_ADDR ((uint8_t*)0x00)
 #define EEPROM_MAGIC_VALUE 0xA5
-#define EEPROM_PATTERN_ADDR ((uint16_t*)0x01)
+#define EEPROM_PATTERN_ADDR ((uint32_t*)0x01)
 
 // === Timer0 ISR: 1ms tick ===
 ISR(TIMER0_COMPA_vect)
@@ -63,38 +61,34 @@ ISR(TIMER0_COMPA_vect)
         tick_count = 0;
         step_triggered = 1;
 
-        // LED: brightness indicates beat position
-        if ((current_step & 0x03) == 0)
-        {
-            switch (current_step)
-            {
-            case 0:
-                OCR1A = LED_BEAT1;
-                break; // Beat 1: bright
-            case 4:
-                OCR1A = LED_BEAT2;
-                break; // Beat 2: off
-            case 8:
-                OCR1A = LED_BEAT3;
-                break; // Beat 3: dim
-            case 12:
-                OCR1A = LED_BEAT4;
-                break; // Beat 4: off
+        // LED: blink on quarter notes, except bar 2 beat 1 (8th notes)
+        if (current_step >= 16 && current_step < 20) {
+            // Bar 2 beat 1: 8th note blink (steps 16,18 on / 17,19 off)
+            if (current_step & 0x01) {
+                OCR1A = 0;
+            } else {
+                OCR1A = LED_BAR_HEAD;
             }
+        } else if ((current_step & 0x03) != 0) {
+            OCR1A = 0;  // Non-beat steps: off
+        } else if (current_step == 0) {
+            OCR1A = LED_BAR_HEAD;  // Bar 1 start: bright
+        } else {
+            OCR1A = LED_BEAT;  // Other beats: dim
         }
 
         // CV output (button overrides pattern)
         uint8_t should_play;
         if (current_btn == BTN_A) {
             should_play = 1;  // A held: always play
-            pattern |= (1 << current_step);  // Also add to pattern
+            pattern |= (1UL << current_step);  // Also add to pattern
             pattern_dirty = 1;
         } else if (current_btn == BTN_B) {
             should_play = 0;  // B held: always mute
-            pattern &= ~(1 << current_step);  // Also remove from pattern
+            pattern &= ~(1UL << current_step);  // Also remove from pattern
             pattern_dirty = 1;
         } else {
-            should_play = (pattern & (1 << current_step)) ? 1 : 0;
+            should_play = (pattern & (1UL << current_step)) ? 1 : 0;
         }
 
         if (should_play) {
@@ -104,7 +98,7 @@ ISR(TIMER0_COMPA_vect)
         }
 
         // Advance step
-        current_step = (current_step + 1) & 0x0F;
+        current_step = (current_step + 1) & 0x1F;
     }
 
     // Auto-off CV after 10ms (LED stays on for full beat)
@@ -168,9 +162,9 @@ int main(void)
 {
     // Load pattern from EEPROM (check magic byte for valid data)
     if (eeprom_read_byte(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC_VALUE) {
-        pattern = eeprom_read_word(EEPROM_PATTERN_ADDR);
+        pattern = eeprom_read_dword(EEPROM_PATTERN_ADDR);
     } else {
-        pattern = 0x0000;  // First boot: empty pattern
+        pattern = 0x00000000;  // First boot: empty pattern
     }
 
     setup();
@@ -182,11 +176,11 @@ int main(void)
         // Update button state continuously (for ISR to use)
         current_btn = get_button();
 
-        // Auto-save at bar start (step 0) if pattern changed
+        // Auto-save at pattern end (step 31→0) if pattern changed
         uint8_t step = current_step;  // Read once (volatile)
-        if (step == 0 && prev_step == 15 && pattern_dirty) {
+        if (step == 0 && prev_step == 31 && pattern_dirty) {
             eeprom_update_byte(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE);
-            eeprom_update_word(EEPROM_PATTERN_ADDR, pattern);
+            eeprom_update_dword(EEPROM_PATTERN_ADDR, pattern);
             pattern_dirty = 0;
         }
         prev_step = step;

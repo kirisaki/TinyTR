@@ -194,14 +194,19 @@ VCC (5V)
 ## Sequencer Functionality
 
 ### Pattern Editing (Play Mode)
-- **16-step pattern** (fixed)
+- **32-step pattern** (2 bars of 16th notes)
 - Real-time editing during playback:
   - A held: Turn step ON + play immediately
   - B held: Turn step OFF + mute immediately
-  - Auto-save to EEPROM at bar end (no manual save needed)
+  - Auto-save to EEPROM at pattern end (no manual save needed)
 - Pattern data structure:
-  - 16 steps × ON/OFF (1 bit per step = 2 bytes)
+  - 32 steps × ON/OFF (1 bit per step = 4 bytes)
   - Accent controlled by LFO, not per-step
+- LED feedback:
+  - Bar 1: Quarter note blink (steps 0,4,8,12 = on)
+  - Bar 2 beat 1: 8th note blink (steps 16,18 = on) - distinguishes bar 2
+  - Bar 2 beats 2-4: Quarter note blink (steps 20,24,28 = on)
+  - Bar head (step 0,16,18): bright / Other beats: dim
 
 ### Tempo Control (Tempo Mode)
 - A/B buttons adjust tempo
@@ -216,12 +221,12 @@ VCC (5V)
 **EEPROM Layout (Planned):**
 ```
 Wear leveling with rotating slots:
-- Slot structure: 1 byte seq + 2 bytes pattern = 3 bytes
-- 512 bytes / 3 = 170 slots per bank (single bank mode)
-- Or 8 banks × ~20 slots each
+- Slot structure: 1 byte seq + 4 bytes pattern = 5 bytes
+- 512 bytes / 5 = 102 slots per bank (single bank mode)
+- Or 8 banks × ~12 slots each
 - Boot: scan for highest sequence number
 - Save: write to next slot with seq+1
-- Lifespan: 170× improvement (~9000 hours continuous editing)
+- Lifespan: 102× improvement (~5500 hours continuous editing)
 ```
 
 ### LFO Control
