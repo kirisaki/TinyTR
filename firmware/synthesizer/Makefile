@@ -32,6 +32,10 @@ flash: main.hex
 check:
 	$(AVRDUDE) -c $(PROGRAMMER) -p t85 -B $(BITCLOCK)
 
+# Set fuses for 8MHz internal oscillator (no CKDIV8)
+fuse:
+	$(AVRDUDE) -c $(PROGRAMMER) -p t85 -B $(BITCLOCK) -U lfuse:w:0xe2:m
+
 clean:
 	rm -f *.elf *.hex
 

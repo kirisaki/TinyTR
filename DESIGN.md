@@ -19,8 +19,8 @@ This document describes the hardware and communication design.
 PB0 (Pin 5): SDA (I2C communication with other sequencers)
 PB1 (Pin 6): ADC input - 4 buttons (resistor divider)
 PB2 (Pin 7): SCL (I2C communication with other sequencers)
-PB3 (Pin 2): CV output to synthesizer (PWM)
-PB4 (Pin 3): LED output (rhythm/mode indicator)
+PB3 (Pin 2): LED output (rhythm/mode indicator)
+PB4 (Pin 3): CV output to synthesizer (Timer1 OC1B PWM)
 ```
 
 **User Interface:**
@@ -32,7 +32,7 @@ PB4 (Pin 3): LED output (rhythm/mode indicator)
     - Pattern editing (set accent per step)
     - Tempo adjustment
     - LFO rate and intensity adjustment
-- 1 LED (PB4):
+- 1 LED (PB3):
   - Current step indicator during playback
   - Mode indicator (blink pattern)
 
@@ -102,7 +102,7 @@ PB4 (Pin 3): PWM audio output (Timer1 OC1B) - Current
 The sequencer sends trigger and accent information to synthesizers via analog voltage.
 
 **Implementation: PWM + RC Filter**
-- Sequencer outputs PWM on PB3
+- Sequencer outputs PWM on PB4 (Timer1 OC1B)
 - External RC filter converts to DC voltage (0-5V range)
 - Power supply: 5V
 - Full voltage range utilized: 0-5V
@@ -123,7 +123,21 @@ Since each synthesizer produces only one voice, CV voltage represents:
 100% duty → 5.0V → Maximum accent
 ```
 
-The synthesizer detects trigger by voltage threshold (e.g., >0.5V) and scales output volume based on CV amplitude.
+**Synthesizer CV Input Mapping (Current Implementation):**
+```
+ADC Value   Voltage    Action
+---------   -------    ------
+0-2         ~0.0V      Idle (no trigger)
+3-9         ~0.06-0.2V Hysteresis zone (hold previous state)
+10-255      ~0.2-5.0V  Trigger + Accent
+
+Accent Volume Mapping:
+  ADC 10  → 16384 (25% volume)
+  ADC 255 → 65384 (100% volume)
+  Formula: volume = 16384 + (ADC - 10) * 200
+```
+
+The synthesizer detects trigger by voltage threshold (~0.2V) and scales output volume based on CV amplitude.
 
 ## Button Input Design
 
