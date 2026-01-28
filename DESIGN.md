@@ -196,14 +196,12 @@ VCC (5V)
 ### Pattern Editing (Play Mode)
 - **16-step pattern** (fixed)
 - Real-time editing during playback:
-  - A short: Turn current step ON
-  - A long: Save pattern to EEPROM
-  - B short: Turn current step OFF
-  - B long: Clear entire pattern
+  - A held: Turn step ON + play immediately
+  - B held: Turn step OFF + mute immediately
+  - Auto-save to EEPROM at bar end (no manual save needed)
 - Pattern data structure:
   - 16 steps × ON/OFF (1 bit per step = 2 bytes)
   - Accent controlled by LFO, not per-step
-  - Multiple banks stored in EEPROM (auto-save on bank switch)
 
 ### Tempo Control (Tempo Mode)
 - A/B buttons adjust tempo
@@ -212,8 +210,19 @@ VCC (5V)
 
 ### Pattern Banks (Bank Mode)
 - A/B buttons switch between pattern banks
-- 8 banks (16 bytes total in EEPROM)
-- Auto-save current pattern before switching
+- 8 banks
+- Auto-save at bar end when pattern changes
+
+**EEPROM Layout (Planned):**
+```
+Wear leveling with rotating slots:
+- Slot structure: 1 byte seq + 2 bytes pattern = 3 bytes
+- 512 bytes / 3 = 170 slots per bank (single bank mode)
+- Or 8 banks × ~20 slots each
+- Boot: scan for highest sequence number
+- Save: write to next slot with seq+1
+- Lifespan: 170× improvement (~9000 hours continuous editing)
+```
 
 ### LFO Control
 - **LFO Rate Mode**: A/B adjust LFO frequency
@@ -251,8 +260,11 @@ VCC (5V)
 - [x] Test single voice trigger via CV
 
 ### Phase 2: Sequencer Core
-- [ ] 16-step pattern playback
-- [ ] 3-button input (resistor divider ADC)
+- [x] 16-step pattern playback
+- [x] 3-button input (resistor divider ADC + 10nF debounce)
+- [x] Play mode with real-time editing (A=add, B=remove)
+- [x] LED beat indicator (beat 1 bright, beat 3 dim)
+- [x] Auto-save to EEPROM at bar end
 - [ ] 5-mode system with LED feedback
 - [ ] Tempo control (60-240 BPM)
 - [ ] LFO for accent modulation
