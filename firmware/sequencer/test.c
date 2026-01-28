@@ -14,12 +14,13 @@
 #define MS_PER_STEP (60000 / BPM / STEPS_PER_BEAT)  // ~125ms at 120BPM
 
 // --- Pattern (16 steps, 0-255 accent) ---
-// DEBUG: every step triggers with varying accent
+// Funky hi-hat: accents on offbeats (&), ghost notes on "e" and "a"
+// Beat:  1   e   &   a   2   e   &   a   3   e   &   a   4   e   &   a
 uint8_t pattern[16] = {
-    255, 180, 200, 160,
-    230, 170, 210, 150,
-    240, 175, 205, 155,
-    220, 165, 195, 145
+    180,  0, 255, 100,   // 1 - & accented
+    160,  0, 255,  80,   // 2
+    180,  0, 255, 100,   // 3
+    160, 90, 255, 120    // 4 - extra ghost before turnaround
 };
 
 volatile uint8_t current_step = 0;

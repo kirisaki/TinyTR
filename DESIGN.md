@@ -24,17 +24,31 @@ PB4 (Pin 3): CV output to synthesizer (Timer1 OC1B PWM)
 ```
 
 **User Interface:**
-- 4 buttons via resistor divider (PB1):
-  - Button A: Value decrease / Step accent input
-  - Button B: Value increase / Step accent input
-  - Button C: Confirm / Step accent input
-  - Mode switch: Switches between editing modes
-    - Pattern editing (set accent per step)
-    - Tempo adjustment
-    - LFO rate and intensity adjustment
+- 3 buttons via resistor divider (PB1):
+  - Button A: Step ON / Value decrease
+  - Button B: Step OFF / Value increase (long press: pattern clear in Play mode)
+  - Mode: Cycle modes (short) / I2C master toggle (long)
 - 1 LED (PB3):
-  - Current step indicator during playback
-  - Mode indicator (blink pattern)
+  - Mode-specific feedback (see Sequencer Modes)
+
+**Sequencer Modes:**
+```
+Mode        A           B              A Long    B Long    LED Pattern
+────────────────────────────────────────────────────────────────────────
+0: Play     Step ON     Step OFF       Save      Clear     Alternating per beat
+1: Tempo    BPM ↓       BPM ↑          -         -         Flash on downbeat
+2: Bank     Bank ↓      Bank ↑         -         -         Solid ON
+3: LFO Rate Rate ↓      Rate ↑         -         -         Blink at LFO freq
+4: LFO Depth Depth ↓    Depth ↑        -         -         PWM brightness
+```
+
+**Pattern Save Behavior:**
+- A long press in Play mode: Save pattern to current bank (EEPROM)
+- Bank switch: Auto-save current pattern before switching
+
+**Mode Button:**
+- Short press: Cycle through modes (0→1→2→3→4→0)
+- Long press: Toggle I2C master mode (Standalone ↔ Primary)
 
 **I2C Communication:**
 - Tempo synchronization between multiple sequencer units
@@ -51,13 +65,18 @@ PB4 (Pin 3): CV output to synthesizer (Timer1 OC1B PWM)
 [Power ON] → [Standalone]
 
 [Standalone] + Mode long-press → [Primary]
-  → Broadcasts tempo clock
-  → Other units automatically become Secondary
+  → Broadcasts tempo clock on each step
+  → LED: 2 blinks on mode change
 
 [Standalone] + Receive I2C clock → [Secondary]
-  → Syncs to received tempo
+  → Syncs to received tempo (auto-detect)
+  → LED: 3 blinks on mode change
 
-[Secondary] + Disconnect I2C + Mode long-press → [Standalone]
+[Primary] + Mode long-press → [Standalone]
+  → Stops broadcasting
+
+[Secondary] + Mode long-press → [Standalone]
+  → Ignores I2C clock
 ```
 
 **Protocol:**
@@ -90,10 +109,10 @@ PB4 (Pin 3): PWM audio output (Timer1 OC1B) - Current
 - PAM8302 audio amplifier (always ON, no shutdown control)
 - Single voice per chip (kick, snare, hi-hat, etc.)
 - Multiple chips can be driven from one sequencer in parallel
-- Analog post-processing circuits:
-  - Resonance filter circuit (NJM2746M dual op-amp)
-  - Distortion circuit (NJM2746M dual op-amp)
-  - Applied to PWM output before amplification
+- Analog post-processing circuits (NJM2746M dual op-amp):
+  - Distortion circuit
+  - Audio chain input mixer (for cascading multiple units)
+  - Signal chain: Local PWM → Distortion → Mix with chain input → Amp
 
 ## Communication Protocol
 
@@ -141,95 +160,113 @@ The synthesizer detects trigger by voltage threshold (~0.2V) and scales output v
 
 ## Button Input Design
 
-### 4-Button Resistor Divider
+### 3-Button Resistor Divider
 
 Buttons are read via a single ADC pin using resistor divider network.
 
-**Example resistor values:**
+**Circuit:**
 ```
-Button A: 0Ω     → ~0V
-Button B: 1kΩ    → ~1V
-Button C: 2.2kΩ  → ~2V
-Mode:     4.7kΩ  → ~3V
+VCC (5V)
+    │
+   [10kΩ] Pull-up
+    │
+    ├────────────→ PB1 (ADC1)
+    │
+    ├──[A]──┤0Ω├──→ GND      (0V)
+    │
+    ├──[B]──┤2.2kΩ├──→ GND   (~0.9V)
+    │
+    └──[M]──┤4.7kΩ├──→ GND   (~1.6V)
 ```
 
 **ADC reading thresholds** (8-bit ADC, 0-255):
-- Button A: 0-40
-- Button B: 41-100
-- Button C: 101-160
-- Mode:     161-220
-- None:     221-255
+| Button | Voltage | ADC Range |
+|--------|---------|-----------|
+| A      | 0V      | 0-25      |
+| B      | 0.9V    | 26-60     |
+| Mode   | 1.6V    | 61-120    |
+| None   | 5V      | 200-255   |
 
-**Decision:** Final resistor values TBD based on noise margin testing.
+**Timing:**
+- Short press: < 500ms
+- Long press: ≥ 500ms
 
 ## Sequencer Functionality
 
-### Pattern Editing
+### Pattern Editing (Play Mode)
 - **16-step pattern** (fixed)
-- Buttons A/B/C: Trigger/accent input for current step
-- Mode button: Advances to next step or changes edit mode
+- Real-time editing during playback:
+  - A short: Turn current step ON
+  - A long: Save pattern to EEPROM
+  - B short: Turn current step OFF
+  - B long: Clear entire pattern
 - Pattern data structure:
-  - 16 steps × accent level (0-255 per step)
-  - Stored in RAM during playback
-  - Optional: EEPROM storage for pattern save
+  - 16 steps × ON/OFF (1 bit per step = 2 bytes)
+  - Accent controlled by LFO, not per-step
+  - Multiple banks stored in EEPROM (auto-save on bank switch)
 
-### Tempo Control
-- Mode switch enters tempo editing mode
-- Buttons adjust tempo (coarse/fine adjustment)
+### Tempo Control (Tempo Mode)
+- A/B buttons adjust tempo
 - Range: 60-240 BPM (typical)
 - Synchronized via I2C for multi-sequencer setups
 
-### LFO/Accent Control
-- Mode switch enters LFO editing mode
-- Buttons adjust:
-  - LFO frequency (rate)
-  - LFO intensity (depth)
-  - Global accent amount
-- Per-step accent set in pattern editing mode
+### Pattern Banks (Bank Mode)
+- A/B buttons switch between pattern banks
+- 8 banks (16 bytes total in EEPROM)
+- Auto-save current pattern before switching
+
+### LFO Control
+- **LFO Rate Mode**: A/B adjust LFO frequency
+- **LFO Depth Mode**: A/B adjust LFO intensity
+- LFO modulates CV output voltage (accent)
 
 ## Open Design Questions
 
 ### Resolved:
 1. ✓ CV output method: **PWM + RC filter** (0-5V range)
-2. ✓ Pattern memory structure: **16 steps, 0-255 accent level per step**
-3. ✓ CV voltage encoding: **0V = idle, 0.1-5V = trigger + accent**
-4. ✓ Synthesizer CV input: **PB3 (ADC)**
+2. ✓ Pattern memory structure: **16 steps × ON/OFF, accent via LFO**
+3. ✓ CV voltage encoding: **0V = idle, 0.2-5V = trigger + accent**
+4. ✓ Synthesizer CV input: **PB4 (ADC2)**
+5. ✓ Button count: **3 buttons (A, B, Mode)**
+6. ✓ Mode system: **5 modes (Play, Tempo, Bank, LFO Rate, LFO Depth)**
+7. ✓ Power supply: **FP6291 boost + diode OR for chain sharing**
+8. ✓ Pattern banks: **8 banks (2 bytes × 8 = 16 bytes EEPROM)**
 
 ### Remaining Decisions:
-1. Exact resistor values for button divider (requires noise margin testing)
-2. I2C protocol details for multi-sequencer sync (message format, timing)
+1. I2C protocol details (message format, timing)
+2. LFO waveform (triangle, sine, random?)
 
 ### Future Considerations:
-- Pattern save/load mechanism
-- EEPROM usage for pattern storage
-- Multiple pattern banks
 - Swing/shuffle timing
 - External clock input
 
 ## Development Phases
 
 ### Phase 1: Voice Synthesis & Communication (Current)
-- [x] Voice synthesis engine (kick, snare, hi-hat, clap)
+- [x] Voice synthesis engine (kick, snare, hi-hat, clap, tom, cowbell)
 - [x] PWM audio output at 250kHz
 - [x] 20kHz sampling mixer
-- [ ] CV output on sequencer (PWM)
-- [ ] CV input on synthesizer (ADC)
-- [ ] Test single voice trigger via CV
+- [x] CV output on sequencer (PWM)
+- [x] CV input on synthesizer (ADC)
+- [x] Test single voice trigger via CV
 
-### Phase 2: Pattern Playback
-- [ ] 16-step sequencer implementation
-- [ ] Button input reading (resistor divider ADC)
+### Phase 2: Sequencer Core
+- [ ] 16-step pattern playback
+- [ ] 3-button input (resistor divider ADC)
+- [ ] 5-mode system with LED feedback
 - [ ] Tempo control (60-240 BPM)
+- [ ] LFO for accent modulation
 
-### Phase 3: Full Features
-- [ ] Mode switching
-- [ ] LFO/accent control
-- [ ] I2C synchronization
+### Phase 3: Extended Features
+- [ ] Pattern banks (EEPROM storage)
+- [ ] I2C synchronization (Primary/Secondary)
+- [ ] Long press actions
 
-### Phase 4: Polish
-- [ ] Pattern storage
-- [ ] Optimization
-- [ ] Hardware finalization
+### Phase 4: Hardware & Polish
+- [ ] Distortion circuit (NJM2746M)
+- [ ] Audio chain input mixing
+- [ ] Power supply (FP6291 + diode OR)
+- [ ] Final PCB design
 
 ## Notes
 
