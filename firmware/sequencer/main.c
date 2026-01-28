@@ -44,6 +44,7 @@ volatile uint16_t pattern = 0x0000; // 16 steps, 1 bit each
 volatile uint8_t current_step = 0;
 volatile uint16_t tick_count = 0;
 volatile uint8_t step_triggered = 0; // Flag: step just changed
+volatile uint8_t current_btn = BTN_NONE; // Current button state (for ISR)
 
 // === Timer0 ISR: 1ms tick ===
 ISR(TIMER0_COMPA_vect)
@@ -75,13 +76,21 @@ ISR(TIMER0_COMPA_vect)
             }
         }
 
-        // CV output
-        if (pattern & (1 << current_step))
-        {
-            OCR1B = CV_ACCENT;
+        // CV output (button overrides pattern)
+        uint8_t should_play;
+        if (current_btn == BTN_A) {
+            should_play = 1;  // A held: always play
+            pattern |= (1 << current_step);  // Also add to pattern
+        } else if (current_btn == BTN_B) {
+            should_play = 0;  // B held: always mute
+            pattern &= ~(1 << current_step);  // Also remove from pattern
+        } else {
+            should_play = (pattern & (1 << current_step)) ? 1 : 0;
         }
-        else
-        {
+
+        if (should_play) {
+            OCR1B = CV_ACCENT;
+        } else {
             OCR1B = 0;
         }
 
@@ -152,27 +161,9 @@ int main(void)
 
     while (1)
     {
-        // Check if step just changed
-        if (step_triggered)
-        {
-            step_triggered = 0;
+        // Update button state continuously (for ISR to use)
+        current_btn = get_button();
 
-            uint8_t btn = get_button();
-
-            // Get the step that just played
-            uint8_t edit_step = (current_step == 0) ? 15 : current_step - 1;
-
-            if (btn == BTN_A)
-            {
-                // A held: Turn step ON
-                pattern |= (1 << edit_step);
-            }
-            else if (btn == BTN_B)
-            {
-                // B held: Turn step OFF
-                pattern &= ~(1 << edit_step);
-            }
-            // M: reserved for mode switch (later)
-        }
+        // M: reserved for mode switch (later)
     }
 }
