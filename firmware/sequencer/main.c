@@ -170,11 +170,30 @@ int main(void)
     setup();
 
     uint8_t prev_step = 0;
+    uint16_t b_hold_time = 0;  // B button hold duration in ms
+    uint16_t last_tick = 0;
 
     while (1)
     {
         // Update button state continuously (for ISR to use)
         current_btn = get_button();
+
+        // Calculate elapsed time since last loop
+        uint16_t now = tick_count;
+        uint16_t elapsed = (now >= last_tick) ? (now - last_tick) : (now + MS_PER_STEP - last_tick);
+        last_tick = now;
+
+        // B long press (2 sec) = clear pattern
+        if (current_btn == BTN_B) {
+            b_hold_time += elapsed;
+            if (b_hold_time >= 2000) {
+                pattern = 0x00000000;
+                pattern_dirty = 1;
+                b_hold_time = 0;  // Reset to prevent repeated clear
+            }
+        } else {
+            b_hold_time = 0;
+        }
 
         // Auto-save at pattern end (step 31→0) if pattern changed
         uint8_t step = current_step;  // Read once (volatile)
