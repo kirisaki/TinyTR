@@ -1,5 +1,6 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/eeprom.h>
 #include <util/delay.h>
 
 // === Pin Configuration ===
@@ -45,6 +46,12 @@ volatile uint8_t current_step = 0;
 volatile uint16_t tick_count = 0;
 volatile uint8_t step_triggered = 0; // Flag: step just changed
 volatile uint8_t current_btn = BTN_NONE; // Current button state (for ISR)
+volatile uint8_t pattern_dirty = 0; // Flag: pattern changed, needs save
+
+// === EEPROM ===
+#define EEPROM_MAGIC_ADDR ((uint8_t*)0x00)
+#define EEPROM_MAGIC_VALUE 0xA5
+#define EEPROM_PATTERN_ADDR ((uint16_t*)0x01)
 
 // === Timer0 ISR: 1ms tick ===
 ISR(TIMER0_COMPA_vect)
@@ -81,9 +88,11 @@ ISR(TIMER0_COMPA_vect)
         if (current_btn == BTN_A) {
             should_play = 1;  // A held: always play
             pattern |= (1 << current_step);  // Also add to pattern
+            pattern_dirty = 1;
         } else if (current_btn == BTN_B) {
             should_play = 0;  // B held: always mute
             pattern &= ~(1 << current_step);  // Also remove from pattern
+            pattern_dirty = 1;
         } else {
             should_play = (pattern & (1 << current_step)) ? 1 : 0;
         }
@@ -157,12 +166,30 @@ void setup(void)
 // === Main ===
 int main(void)
 {
+    // Load pattern from EEPROM (check magic byte for valid data)
+    if (eeprom_read_byte(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC_VALUE) {
+        pattern = eeprom_read_word(EEPROM_PATTERN_ADDR);
+    } else {
+        pattern = 0x0000;  // First boot: empty pattern
+    }
+
     setup();
+
+    uint8_t prev_step = 0;
 
     while (1)
     {
         // Update button state continuously (for ISR to use)
         current_btn = get_button();
+
+        // Auto-save at bar start (step 0) if pattern changed
+        uint8_t step = current_step;  // Read once (volatile)
+        if (step == 0 && prev_step == 15 && pattern_dirty) {
+            eeprom_update_byte(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE);
+            eeprom_update_word(EEPROM_PATTERN_ADDR, pattern);
+            pattern_dirty = 0;
+        }
+        prev_step = step;
 
         // M: reserved for mode switch (later)
     }
