@@ -60,36 +60,11 @@ int main(void)
 
     uint8_t prev_state = 0;
 
+    uint8_t loop_div = 0;  // Divide pot reading frequency
+
     while (1)
     {
-        update_voice_button();
-
-        // Read DECAY/TONE potentiometers (with settling time)
-        ADMUX = (1 << ADLAR) | DECAY_CH;
-        _delay_us(100);  // Let ADC settle after channel switch
-        uint8_t decay_raw = read_adc(DECAY_CH);
-
-        ADMUX = (1 << ADLAR) | TONE_CH;
-        _delay_us(100);
-        uint8_t tone_raw = read_adc(TONE_CH);
-
-        // Map decay to valid values (3, 7, 15)
-        if (decay_raw < 85) param_decay = 3;
-        else if (decay_raw < 170) param_decay = 7;
-        else param_decay = 15;
-
-        // Map param_decay to per-voice decay (cowbell as reference)
-        // param_decay: 3, 7, 15 → cb_decay: 1, 3, 7 (shortest, reference)
-        cb_decay = (param_decay >> 1) | 1;  // Cowbell: reference (1, 3, 7)
-        h_decay = (param_decay >> 1) | 1;   // Hihat: same as cowbell
-        c_decay = (param_decay >> 1) | 1;   // Clap: same as cowbell
-        t_decay = param_decay >> 1;          // Tom: slightly longer (1, 3, 7)
-        s_decay = param_decay >> 1;          // Snare: slightly longer
-        k_decay = param_decay;               // Kick: longest (3, 7, 15)
-
-        // Map tone to frequency range (~half semitone lower)
-        param_tone = 470 + ((uint16_t)tone_raw * 6);
-
+        // Read CV first (high priority)
         uint8_t cv = read_adc(CV_INPUT_CH);
 
         // State with hysteresis
@@ -113,7 +88,7 @@ int main(void)
                     k_vol = accent_vol;
                     k_active = 1;
                     k_step = param_tone;
-                    k_phase = 0x6000;
+                    // k_phase not reset - avoids click on retrigger
                     break;
                 case 1:  // Snare
                     s_vol = (uint16_t)(((uint32_t)accent_vol * 35000) >> 16);
@@ -127,9 +102,13 @@ int main(void)
                     break;
                 case 3:  // Clap
                     c_vol = (uint16_t)(((uint32_t)accent_vol * 50000) >> 16);
+                    if (!c_active) {
+                        // Fresh trigger: do stutter
+                        c_stutter = 3;
+                        c_stutter_timer = 0;
+                    }
+                    // Retrigger while active: skip stutter, just boost volume
                     c_active = 1;
-                    c_stutter = 3;
-                    c_stutter_timer = 0;
                     break;
                 case 4:  // Tom
                     t_vol = (uint16_t)(((uint32_t)accent_vol * 55000) >> 16);
@@ -148,5 +127,34 @@ int main(void)
         }
 
         prev_state = curr_state;
+
+        // Check voice button frequently (every 16 loops)
+        if ((loop_div & 0x0F) == 0) {
+            update_voice_button();
+        }
+
+        // Read pots less frequently (every 256 loops)
+        if (++loop_div == 0)
+        {
+            // Read DECAY/TONE potentiometers
+            uint8_t decay_raw = read_adc(DECAY_CH);
+            uint8_t tone_raw = read_adc(TONE_CH);
+
+            // Map decay to valid values (3, 7, 15)
+            if (decay_raw < 85) param_decay = 3;
+            else if (decay_raw < 170) param_decay = 7;
+            else param_decay = 15;
+
+            // Map param_decay to per-voice decay
+            cb_decay = (param_decay >> 1) | 1;
+            h_decay = (param_decay >> 1) | 1;
+            c_decay = (param_decay >> 1) | 1;
+            t_decay = param_decay >> 1;
+            s_decay = param_decay >> 1;
+            k_decay = param_decay;
+
+            // Map tone to frequency range
+            param_tone = 470 + ((uint16_t)tone_raw * 6);
+        }
     }
 }
