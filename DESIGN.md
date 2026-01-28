@@ -17,9 +17,9 @@ This document describes the hardware and communication design.
 **Pin Assignment:**
 ```
 PB0 (Pin 5): SDA (I2C communication with other sequencers)
-PB1 (Pin 6): ADC input - 4 buttons (resistor divider)
+PB1 (Pin 6): LED output (rhythm/mode indicator)
 PB2 (Pin 7): SCL (I2C communication with other sequencers)
-PB3 (Pin 2): LED output (rhythm/mode indicator)
+PB3 (Pin 2): Button input (ADC3, resistor divider)
 PB4 (Pin 3): CV output to synthesizer (Timer1 OC1B PWM)
 ```
 
@@ -170,13 +170,13 @@ VCC (5V)
     │
    [10kΩ] Pull-up
     │
-    ├────────────→ PB1 (ADC1)
+    ├────────────→ PB3 (ADC3)
     │
     ├──[A]──┤0Ω├──→ GND      (0V)
     │
     ├──[B]──┤2.2kΩ├──→ GND   (~0.9V)
     │
-    └──[M]──┤4.7kΩ├──→ GND   (~1.6V)
+    └──[M]──┤5kΩ├──→ GND     (~1.67V)
 ```
 
 **ADC reading thresholds** (8-bit ADC, 0-255):
@@ -184,7 +184,7 @@ VCC (5V)
 |--------|---------|-----------|
 | A      | 0V      | 0-25      |
 | B      | 0.9V    | 26-60     |
-| Mode   | 1.6V    | 61-120    |
+| Mode   | 1.67V   | 61-120    |
 | None   | 5V      | 200-255   |
 
 **Timing:**
