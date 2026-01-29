@@ -96,6 +96,15 @@ volatile uint8_t cb_active = 0;
 // Noise Generator (shared by Snare/Hat/Clap)
 volatile uint16_t lfsr = 0xACE1;
 
+// Step LFSR and return current value
+static inline uint16_t noise_step(void)
+{
+    uint8_t lsb = lfsr & 1;
+    lfsr >>= 1;
+    if (lsb) lfsr ^= 0xB400;
+    return lfsr;
+}
+
 // --- Sound Synthesis Engine (Inline Functions) ---
 
 // 1. Kick calculation: Sine wave + Pitch sweep + Exponential decay
@@ -148,10 +157,7 @@ static inline int16_t calc_snare()
         return 0;
 
     // Noise generation (LFSR)
-    uint8_t lsb = lfsr & 1;
-    lfsr >>= 1;
-    if (lsb)
-        lfsr ^= 0xB400;
+    noise_step();
 
     // Decay for both components
     static uint8_t s_div = 0;
@@ -192,10 +198,7 @@ static inline int16_t calc_hihat()
         return 0;
 
     // Noise generation
-    uint8_t h_lsb = lfsr & 1;
-    lfsr >>= 1;
-    if (h_lsb)
-        lfsr ^= 0xB400;
+    noise_step();
 
     // Volume decay
     static uint8_t h_div = 0;
@@ -237,10 +240,7 @@ static inline int16_t calc_clap()
         return 0;
 
     // Noise generation
-    uint8_t lsb = lfsr & 1;
-    lfsr >>= 1;
-    if (lsb)
-        lfsr ^= 0xB400;
+    noise_step();
 
     c_stutter_timer++;
 
