@@ -2,6 +2,7 @@
 #include <avr/interrupt.h>
 #include <avr/eeprom.h>
 #include <util/delay.h>
+#include "../common/adc.h"
 
 // === Pin Configuration ===
 // PB0: I2C SDA (future)
@@ -108,16 +109,6 @@ ISR(TIMER0_COMPA_vect)
     }
 }
 
-// === ADC Read ===
-uint8_t read_adc(uint8_t channel)
-{
-    ADMUX = (1 << ADLAR) | (channel & 0x03);
-    ADCSRA |= (1 << ADSC);
-    while (ADCSRA & (1 << ADSC))
-        ;
-    return ADCH;
-}
-
 // === Get Button State ===
 uint8_t get_button(void)
 {
@@ -148,8 +139,7 @@ void setup(void)
     TIMSK |= (1 << OCIE0A);
 
     // ADC
-    ADMUX = (1 << ADLAR);
-    ADCSRA = (1 << ADEN) | (1 << ADPS2) | (1 << ADPS1);
+    adc_init();
 
     // GPIO
     DDRB |= (1 << CV_PIN) | (1 << LED_PIN);
