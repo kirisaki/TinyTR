@@ -52,6 +52,44 @@ volatile uint8_t pattern_dirty = 0; // Flag: pattern changed, needs save
 #define EEPROM_MAGIC_VALUE 0xA5
 #define EEPROM_PATTERN_ADDR ((uint32_t*)0x01)
 
+// === CV Auto-off Timing ===
+#define CV_GATE_MS 10
+
+// === LED Update ===
+static inline void update_led(uint8_t step)
+{
+    // Bar 2 beat 1: 8th note blink (steps 16,18 on / 17,19 off)
+    if (step >= 16 && step < 20) {
+        OCR1A = (step & 0x01) ? 0 : LED_BAR_HEAD;
+    } else if ((step & 0x03) != 0) {
+        OCR1A = 0;  // Non-beat steps: off
+    } else if (step == 0) {
+        OCR1A = LED_BAR_HEAD;  // Bar 1 start: bright
+    } else {
+        OCR1A = LED_BEAT;  // Other beats: dim
+    }
+}
+
+// === CV Output + Pattern Update ===
+static inline void update_cv(uint8_t step)
+{
+    uint8_t should_play;
+
+    if (current_btn == BTN_A) {
+        should_play = 1;
+        pattern |= (1UL << step);
+        pattern_dirty = 1;
+    } else if (current_btn == BTN_B) {
+        should_play = 0;
+        pattern &= ~(1UL << step);
+        pattern_dirty = 1;
+    } else {
+        should_play = (pattern & (1UL << step)) ? 1 : 0;
+    }
+
+    OCR1B = should_play ? CV_ACCENT : 0;
+}
+
 // === Timer0 ISR: 1ms tick ===
 ISR(TIMER0_COMPA_vect)
 {
@@ -62,48 +100,13 @@ ISR(TIMER0_COMPA_vect)
         tick_count = 0;
         step_triggered = 1;
 
-        // LED: blink on quarter notes, except bar 2 beat 1 (8th notes)
-        if (current_step >= 16 && current_step < 20) {
-            // Bar 2 beat 1: 8th note blink (steps 16,18 on / 17,19 off)
-            if (current_step & 0x01) {
-                OCR1A = 0;
-            } else {
-                OCR1A = LED_BAR_HEAD;
-            }
-        } else if ((current_step & 0x03) != 0) {
-            OCR1A = 0;  // Non-beat steps: off
-        } else if (current_step == 0) {
-            OCR1A = LED_BAR_HEAD;  // Bar 1 start: bright
-        } else {
-            OCR1A = LED_BEAT;  // Other beats: dim
-        }
+        update_led(current_step);
+        update_cv(current_step);
 
-        // CV output (button overrides pattern)
-        uint8_t should_play;
-        if (current_btn == BTN_A) {
-            should_play = 1;  // A held: always play
-            pattern |= (1UL << current_step);  // Also add to pattern
-            pattern_dirty = 1;
-        } else if (current_btn == BTN_B) {
-            should_play = 0;  // B held: always mute
-            pattern &= ~(1UL << current_step);  // Also remove from pattern
-            pattern_dirty = 1;
-        } else {
-            should_play = (pattern & (1UL << current_step)) ? 1 : 0;
-        }
-
-        if (should_play) {
-            OCR1B = CV_ACCENT;
-        } else {
-            OCR1B = 0;
-        }
-
-        // Advance step
         current_step = (current_step + 1) & 0x1F;
     }
 
-    // Auto-off CV after 10ms (LED stays on for full beat)
-    if (tick_count == 10)
+    if (tick_count == CV_GATE_MS)
     {
         OCR1B = 0;
     }
