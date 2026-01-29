@@ -86,7 +86,7 @@ Mode        A           B              A Long    B Long    LED Pattern
 
 ### Synthesizer (ATtiny85)
 
-**Pin Assignment (Planned):**
+**Pin Assignment:**
 ```
 PB0 (Pin 5): Voice select button (digital input)
 PB1 (Pin 6): PWM audio output (Timer1 OC1A)
@@ -94,15 +94,6 @@ PB2 (Pin 7): DECAY potentiometer (ADC1)
 PB3 (Pin 2): TONE potentiometer (ADC3)
 PB4 (Pin 3): CV input from sequencer (ADC2, 0-5V)
 PB5 (Pin 1): RESET (kept functional for ISP programming)
-```
-
-**Pin Assignment (Current Implementation):**
-```
-PB0 (Pin 5): LED output (optional) / MOSI (programming)
-PB1 (Pin 6): MISO (programming)
-PB2 (Pin 7): SCK (programming)
-PB3 (Pin 2): CV input from sequencer (ADC3, 0-5V) - TODO
-PB4 (Pin 3): PWM audio output (Timer1 OC1B) - Current
 ```
 
 **Hardware:**
@@ -238,13 +229,13 @@ Wear leveling with rotating slots:
 
 ### Resolved:
 1. ✓ CV output method: **PWM + RC filter** (0-5V range)
-2. ✓ Pattern memory structure: **16 steps × ON/OFF, accent via LFO**
+2. ✓ Pattern memory structure: **32 steps × ON/OFF, accent via LFO**
 3. ✓ CV voltage encoding: **0V = idle, 0.2-5V = trigger + accent**
 4. ✓ Synthesizer CV input: **PB4 (ADC2)**
 5. ✓ Button count: **3 buttons (A, B, Mode)**
 6. ✓ Mode system: **5 modes (Play, Tempo, Bank, LFO Rate, LFO Depth)**
 7. ✓ Power supply: **FP6291 boost + diode OR for chain sharing**
-8. ✓ Pattern banks: **8 banks (2 bytes × 8 = 16 bytes EEPROM)**
+8. ✓ Pattern banks: **8 banks (4 bytes × 8 = 32 bytes EEPROM)**
 
 ### Remaining Decisions:
 1. I2C protocol details (message format, timing)
@@ -265,7 +256,7 @@ Wear leveling with rotating slots:
 - [x] Test single voice trigger via CV
 
 ### Phase 2: Sequencer Core
-- [x] 16-step pattern playback
+- [x] 32-step pattern playback
 - [x] 3-button input (resistor divider ADC + 10nF debounce)
 - [x] Play mode with real-time editing (A=add, B=remove)
 - [x] LED beat indicator (beat 1 bright, beat 3 dim)

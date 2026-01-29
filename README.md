@@ -5,8 +5,11 @@ A compact drum machine project based on ATtiny85 microcontrollers.
 ## Overview
 
 TinyTR is an open-source hardware drum machine that uses two ATtiny85 chips:
-- **Synthesizer**: Generates drum sounds (kick, snare, hi-hat, clap) using digital synthesis
+- **Synthesizer**: Generates drum sounds (kick, snare, hi-hat, clap, tom, cowbell) using digital synthesis
 - **Sequencer**: Controls pattern playback and timing
+
+**Q. Why use two ATtiny85s?**
+A. To clear out old stock...
 
 ## Project Structure
 
