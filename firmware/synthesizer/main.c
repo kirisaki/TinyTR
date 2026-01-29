@@ -38,51 +38,12 @@ int main(void)
 
         // Rising edge (LOW -> HIGH) = trigger current voice with accent
         if (curr_state && !prev_state) {
-            cli();  // Disable interrupts during 16-bit updates
             // Accent: CV voltage scales volume (min 25%, max 100%)
             // CV 10-255 maps to 16384-65535
             uint16_t accent_vol = 16384 + ((uint16_t)(cv - CV_THRESHOLD_ON) * 200);
-            switch (current_voice) {
-                case 0:  // Kick
-                    k_vol = accent_vol;
-                    k_active = 1;
-                    k_step = param_tone;
-                    // k_phase not reset - avoids click on retrigger
-                    break;
-                case 1:  // Snare
-                    s_vol = (uint16_t)(((uint32_t)accent_vol * 35000) >> 16);
-                    s_tone_vol = (uint16_t)(((uint32_t)accent_vol * 50000) >> 16);
-                    s_phase = 0x6000;
-                    s_active = 1;
-                    break;
-                case 2:  // Hi-hat
-                    h_vol = (uint16_t)(((uint32_t)accent_vol * 30000) >> 16);
-                    h_active = 1;
-                    break;
-                case 3:  // Clap
-                    c_vol = (uint16_t)(((uint32_t)accent_vol * 50000) >> 16);
-                    if (!c_active) {
-                        // Fresh trigger: do stutter
-                        c_stutter = 3;
-                        c_stutter_timer = 0;
-                    }
-                    // Retrigger while active: skip stutter, just boost volume
-                    c_active = 1;
-                    break;
-                case 4:  // Tom
-                    t_vol = (uint16_t)(((uint32_t)accent_vol * 55000) >> 16);
-                    t_active = 1;
-                    t_step = param_tone + 200;  // Linked to TONE
-                    t_phase = 0x6000;
-                    break;
-                case 5:  // Cowbell
-                    cb_vol = (uint16_t)(((uint32_t)accent_vol * 45000) >> 16);
-                    cb_active = 1;
-                    cb_phase1 = 0x6000;
-                    cb_phase2 = 0x6000;
-                    break;
-            }
-            sei();  // Re-enable interrupts
+            cli();
+            trigger_current_voice_with_accent(accent_vol);
+            sei();
         }
 
         prev_state = curr_state;

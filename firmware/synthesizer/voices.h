@@ -370,75 +370,116 @@ ISR(TIMER0_COMPA_vect)
     OCR1A = (uint8_t)output;
 }
 
-// --- Trigger Functions ---
-static inline void trigger_kick()
+// --- Accent Helper ---
+// Scale volume by accent (0-65535), returns scaled value
+static inline uint16_t scale_vol(uint16_t base_vol, uint16_t accent)
 {
-    k_active = 1;
-    k_vol = K_VOL_INIT;
-    k_step = param_tone;
-    k_phase = 0x0000;   // Start at zero-crossing (value 128)
+    return (uint16_t)(((uint32_t)accent * base_vol) >> 16);
 }
 
-static inline void trigger_snare()
+// --- Trigger Functions with Accent ---
+static inline void trigger_kick_accent(uint16_t accent)
+{
+    k_active = 1;
+    k_vol = accent;  // Kick uses accent directly (max volume voice)
+    k_step = param_tone;
+    // k_phase not reset - avoids click on retrigger
+}
+
+static inline void trigger_snare_accent(uint16_t accent)
 {
     s_active = 1;
-    s_vol = S_VOL_INIT;
-    s_tone_vol = S_TONE_VOL_INIT;
+    s_vol = scale_vol(S_VOL_INIT, accent);
+    s_tone_vol = scale_vol(S_TONE_VOL_INIT, accent);
     s_phase = 0x6000;
 }
 
-static inline void trigger_hihat()
+static inline void trigger_hihat_accent(uint16_t accent)
 {
     h_active = 1;
-    h_vol = H_VOL_INIT;
-    h_phase1 = 0;
-    h_phase2 = 0;  // No offset for softer attack
-}
-
-static inline void trigger_hihat_closed()
-{
-    h_active = 1;
-    h_vol = H_VOL_INIT;
-    h_decay_speed = 1;
+    h_vol = scale_vol(H_VOL_INIT, accent);
     h_phase1 = 0;
     h_phase2 = 0;
 }
 
-static inline void trigger_hihat_open()
+static inline void trigger_clap_accent(uint16_t accent)
 {
-    h_active = 1;
-    h_vol = H_VOL_INIT;
-    h_decay_speed = 7;
-    h_phase1 = 0;
-    h_phase2 = 0;
-}
-
-static inline void trigger_clap()
-{
+    if (!c_active) {
+        // Fresh trigger: do stutter
+        c_stutter = 3;
+        c_stutter_timer = 0;
+    }
+    // Retrigger while active: skip stutter, just boost volume
     c_active = 1;
-    c_vol = C_VOL_INIT;
-    c_stutter = 3;
-    c_stutter_timer = 0;
+    c_vol = scale_vol(C_VOL_INIT, accent);
 }
 
-static inline void trigger_tom()
+static inline void trigger_tom_accent(uint16_t accent)
 {
     t_active = 1;
-    t_vol = T_VOL_INIT;
+    t_vol = scale_vol(T_VOL_INIT, accent);
     t_step = param_tone + 200;
     t_phase = 0x6000;
 }
 
-static inline void trigger_cowbell()
+static inline void trigger_cowbell_accent(uint16_t accent)
 {
     cb_active = 1;
-    cb_vol = CB_VOL_INIT;
+    cb_vol = scale_vol(CB_VOL_INIT, accent);
     cb_phase1 = 0x6000;
-    cb_phase2 = 0x2000;
+    cb_phase2 = 0x6000;
+}
+
+// --- Trigger Functions (full volume, for compatibility) ---
+static inline void trigger_kick(void)
+{
+    trigger_kick_accent(K_VOL_INIT);
+    k_phase = 0x0000;  // Full reset on manual trigger
+}
+
+static inline void trigger_snare(void)
+{
+    trigger_snare_accent(65535);
+}
+
+static inline void trigger_hihat(void)
+{
+    trigger_hihat_accent(65535);
+}
+
+static inline void trigger_hihat_closed(void)
+{
+    h_decay_speed = 1;
+    trigger_hihat_accent(65535);
+}
+
+static inline void trigger_hihat_open(void)
+{
+    h_decay_speed = 7;
+    trigger_hihat_accent(65535);
+}
+
+static inline void trigger_clap(void)
+{
+    c_stutter = 3;
+    c_stutter_timer = 0;
+    c_active = 1;
+    c_vol = C_VOL_INIT;
+}
+
+static inline void trigger_tom(void)
+{
+    trigger_tom_accent(65535);
+}
+
+static inline void trigger_cowbell(void)
+{
+    trigger_cowbell_accent(65535);
 }
 
 // --- Voice Selection Button Functions ---
-static inline void trigger_current_voice();  // Forward declaration
+static inline void trigger_current_voice(void);        // Forward declaration
+static inline void trigger_current_voice_with_accent(uint16_t accent);  // Forward declaration
 
 static inline void setup_voice_button()
 {
@@ -458,16 +499,21 @@ static inline void update_voice_button()
     btn_prev_state = btn_state;
 }
 
-static inline void trigger_current_voice()
+static inline void trigger_current_voice_with_accent(uint16_t accent)
 {
     switch (current_voice) {
-        case 0: trigger_kick(); break;
-        case 1: trigger_snare(); break;
-        case 2: trigger_hihat(); break;
-        case 3: trigger_clap(); break;
-        case 4: trigger_tom(); break;
-        case 5: trigger_cowbell(); break;
+        case 0: trigger_kick_accent(accent); break;
+        case 1: trigger_snare_accent(accent); break;
+        case 2: trigger_hihat_accent(accent); break;
+        case 3: trigger_clap_accent(accent); break;
+        case 4: trigger_tom_accent(accent); break;
+        case 5: trigger_cowbell_accent(accent); break;
     }
+}
+
+static inline void trigger_current_voice(void)
+{
+    trigger_current_voice_with_accent(65535);
 }
 
 // --- Utility Functions ---
