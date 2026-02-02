@@ -310,7 +310,7 @@ int main(void)
         // B long press (2 sec) = clear pattern (only in Play mode)
         if (current_mode == MODE_PLAY && current_btn == BTN_B) {
             b_hold_time += elapsed;
-            if (b_hold_time >= 2000) {
+            if (b_hold_time >= 1200) {
                 pattern = 0x00000000;
                 pattern_dirty = 1;
                 b_hold_time = 0;  // Reset to prevent repeated clear
@@ -331,6 +331,7 @@ int main(void)
                         current_mode = MODE_BANK;
                     } else if (current_mode == MODE_BANK) {
                         current_mode = MODE_PLAY;
+                        apply_pending_bank();  // Apply bank switch immediately
                     } else {
                         // Settings layer: cycle through settings modes
                         current_mode = (current_mode >= SETTINGS_MODE_LAST)
@@ -345,6 +346,7 @@ int main(void)
                     } else {
                         // Settings → Main (return to Play)
                         current_mode = MODE_PLAY;
+                        apply_pending_bank();  // Apply bank switch immediately
                     }
                 }
             }
