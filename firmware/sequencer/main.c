@@ -37,10 +37,10 @@
 #define MODE_TEMPO 2
 #define MODE_LFO_RATE 3
 #define MODE_LFO_DEPTH 4
-#define MODE_I2C 5
+#define MODE_ETC 5
 
 #define SETTINGS_MODE_FIRST MODE_TEMPO
-#define SETTINGS_MODE_LAST MODE_I2C
+#define SETTINGS_MODE_LAST MODE_ETC
 
 // === Timing ===
 #define BPM 120
@@ -161,7 +161,7 @@ static inline void update_led(uint8_t step)
         OCR1A = LED_BEAT;
         break;
 
-    case MODE_I2C:
+    case MODE_ETC:
         // Double blink pattern
         OCR1A = ((step & 0x03) < 2) ? LED_BAR_HEAD : 0;
         break;

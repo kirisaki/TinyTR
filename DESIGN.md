@@ -38,7 +38,7 @@ PB4 (Pin 3): CV output to synthesizer (Timer1 OC1B PWM)
 │   Play ←→ Bank                                          │
 ├─────────────────────────────────────────────────────────┤
 │ Settings Layer (M short: cycle)                         │
-│   Tempo → LFO Rate → LFO Depth → I2C → Tempo...         │
+│   Tempo → LFO Rate → LFO Depth → Etc → Tempo...         │
 └─────────────────────────────────────────────────────────┘
         ↑                              ↓
         └──── M long press (500ms) ────┘
@@ -46,14 +46,14 @@ PB4 (Pin 3): CV output to synthesizer (Timer1 OC1B PWM)
 
 **Sequencer Modes:**
 ```
-Mode        A           B              B Long    LED Pattern
-──────────────────────────────────────────────────────────────────────
-Play        Step ON     Step OFF       Clear     Bar head bright, beats dim, off otherwise
-Bank        Bank ↓      Bank ↑         -         Bar head bright, beats off, dim otherwise
-Tempo       BPM ↓       BPM ↑          -         Flash on downbeat
-LFO Rate    Rate ↓      Rate ↑         -         Blink at LFO freq
-LFO Depth   Depth ↓     Depth ↑        -         PWM brightness
-I2C         (reserved)  (reserved)     -         Double blink
+Mode        A           B              A Long      B Long      LED Pattern
+────────────────────────────────────────────────────────────────────────────────
+Play        Step ON     Step OFF       -           Clear       Bar head bright, beats dim, off otherwise
+Bank        Bank ↓      Bank ↑         -           -           Bar head bright, beats off, dim otherwise
+Tempo       BPM ↓       BPM ↑          -           -           Flash on downbeat
+LFO Rate    Rate ↓      Rate ↑         -           -           Blink at LFO freq
+LFO Depth   Depth ↓     Depth ↑        -           -           PWM brightness
+Etc         -           -              I2C toggle  All clear   Double blink
 ```
 
 **LED Pattern Detail (Play vs Bank):**
@@ -74,11 +74,15 @@ Others      Off         Dim
 - Short press: Toggle Play↔Bank (main layer) / Cycle settings (settings layer)
 - Long press (500ms): Switch between main layer and settings layer
 
+**Etc Mode (Miscellaneous Settings):**
+- A long press: Toggle I2C master mode
+- B long press: Clear all 8 banks (full reset)
+
 **I2C Communication:**
 - Tempo synchronization between multiple sequencer units
 - Enables multi-sequencer jam sessions
 - Uses broadcast (no individual addressing required)
-- Access via Settings Layer → I2C mode
+- Access via Settings Layer → Etc mode → A long press
 
 **I2C Sync States:**
 - **Standalone**: Default mode, runs on internal tempo
@@ -89,7 +93,7 @@ Others      Off         Dim
 ```
 [Power ON] → [Standalone]
 
-[Standalone] + A button in I2C mode → [Primary]
+[Standalone] + A long press in Etc mode → [Primary]
   → Broadcasts tempo clock on each step
   → LED: 2 blinks on mode change
 
@@ -97,10 +101,10 @@ Others      Off         Dim
   → Syncs to received tempo (auto-detect)
   → LED: 3 blinks on mode change
 
-[Primary] + A button in I2C mode → [Standalone]
+[Primary] + A long press in Etc mode → [Standalone]
   → Stops broadcasting
 
-[Secondary] + A button in I2C mode → [Standalone]
+[Secondary] + A long press in Etc mode → [Standalone]
   → Ignores I2C clock
 ```
 
