@@ -144,8 +144,8 @@ static inline void update_led(uint8_t step)
         break;
 
     case MODE_TEMPO:
-        // Flash on downbeat only (step 0 and 16)
-        OCR1A = ((step & 0x0F) == 0) ? LED_BAR_HEAD : 0;
+        // Flash on every beat (steps 0,4,8,12,16,20,24,28)
+        OCR1A = ((step & 0x03) == 0) ? LED_BAR_HEAD : 0;
         break;
 
     case MODE_BANK:
