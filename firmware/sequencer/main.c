@@ -173,12 +173,13 @@ static inline void update_cv(uint8_t step)
 {
     uint8_t should_play;
 
-    // Pattern editing only in Play mode
-    if (current_mode == MODE_PLAY && current_btn == BTN_A) {
+    // Pattern editing only in Play mode (blocked during pending bank switch)
+    uint8_t can_edit = (current_mode == MODE_PLAY && pending_bank == BANK_NO_PENDING);
+    if (can_edit && current_btn == BTN_A) {
         should_play = 1;
         pattern |= (1UL << step);
         pattern_dirty = 1;
-    } else if (current_mode == MODE_PLAY && current_btn == BTN_B) {
+    } else if (can_edit && current_btn == BTN_B) {
         should_play = 0;
         pattern &= ~(1UL << step);
         pattern_dirty = 1;
@@ -307,8 +308,8 @@ int main(void)
         uint16_t elapsed = (now >= last_tick) ? (now - last_tick) : (now + MS_PER_STEP - last_tick);
         last_tick = now;
 
-        // B long press (2 sec) = clear pattern (only in Play mode)
-        if (current_mode == MODE_PLAY && current_btn == BTN_B) {
+        // B long press = clear pattern (only in Play mode, blocked during pending)
+        if (current_mode == MODE_PLAY && pending_bank == BANK_NO_PENDING && current_btn == BTN_B) {
             b_hold_time += elapsed;
             if (b_hold_time >= 1200) {
                 pattern = 0x00000000;
@@ -331,7 +332,6 @@ int main(void)
                         current_mode = MODE_BANK;
                     } else if (current_mode == MODE_BANK) {
                         current_mode = MODE_PLAY;
-                        apply_pending_bank();  // Apply bank switch immediately
                     } else {
                         // Settings layer: cycle through settings modes
                         current_mode = (current_mode >= SETTINGS_MODE_LAST)
@@ -346,7 +346,6 @@ int main(void)
                     } else {
                         // Settings → Main (return to Play)
                         current_mode = MODE_PLAY;
-                        apply_pending_bank();  // Apply bank switch immediately
                     }
                 }
             }
