@@ -85,3 +85,6 @@ wheels/
 *.step
 *.stp
 *.stl
+
+# Local notes (not tracked)
+*.local.md
