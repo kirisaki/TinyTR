@@ -24,36 +24,61 @@ PB4 (Pin 3): CV output to synthesizer (Timer1 OC1B PWM)
 ```
 
 **User Interface:**
-- 3 buttons via resistor divider (PB1):
+- 3 buttons via resistor divider (PB3):
   - Button A: Step ON / Value decrease
   - Button B: Step OFF / Value increase (long press: pattern clear in Play mode)
-  - Mode: Cycle modes (short) / I2C master toggle (long)
-- 1 LED (PB3):
+  - Mode: Toggle/Cycle modes (short) / Switch layer (long)
+- 1 LED (PB1):
   - Mode-specific feedback (see Sequencer Modes)
+
+**Mode Layer System:**
+```
+┌─────────────────────────────────────────────────────────┐
+│ Main Layer (M short: toggle)                            │
+│   Play ←→ Bank                                          │
+├─────────────────────────────────────────────────────────┤
+│ Settings Layer (M short: cycle)                         │
+│   Tempo → LFO Rate → LFO Depth → I2C → Tempo...         │
+└─────────────────────────────────────────────────────────┘
+        ↑                              ↓
+        └──── M long press (500ms) ────┘
+```
 
 **Sequencer Modes:**
 ```
-Mode        A           B              A Long    B Long    LED Pattern
-────────────────────────────────────────────────────────────────────────
-0: Play     Step ON     Step OFF       Save      Clear     Alternating per beat
-1: Tempo    BPM ↓       BPM ↑          -         -         Flash on downbeat
-2: Bank     Bank ↓      Bank ↑         -         -         Solid ON
-3: LFO Rate Rate ↓      Rate ↑         -         -         Blink at LFO freq
-4: LFO Depth Depth ↓    Depth ↑        -         -         PWM brightness
+Mode        A           B              B Long    LED Pattern
+──────────────────────────────────────────────────────────────────────
+Play        Step ON     Step OFF       Clear     Bar head bright, beats dim, off otherwise
+Bank        Bank ↓      Bank ↑         -         Bar head bright, beats off, dim otherwise
+Tempo       BPM ↓       BPM ↑          -         Flash on downbeat
+LFO Rate    Rate ↓      Rate ↑         -         Blink at LFO freq
+LFO Depth   Depth ↓     Depth ↑        -         PWM brightness
+I2C         (reserved)  (reserved)     -         Double blink
+```
+
+**LED Pattern Detail (Play vs Bank):**
+```
+Step        Play        Bank
+────────────────────────────────
+0 (Bar1)    Bright      Bright (same)
+16,18       Bright      Bright (same)
+4,8,12...   Dim         Off
+Others      Off         Dim
 ```
 
 **Pattern Save Behavior:**
-- A long press in Play mode: Save pattern to current bank (EEPROM)
-- Bank switch: Auto-save current pattern before switching
+- Auto-save to EEPROM at bar end (step 31→0) when pattern changed
+- Bank switch: Auto-save current pattern before loading new bank
 
 **Mode Button:**
-- Short press: Cycle through modes (0→1→2→3→4→0)
-- Long press: Toggle I2C master mode (Standalone ↔ Primary)
+- Short press: Toggle Play↔Bank (main layer) / Cycle settings (settings layer)
+- Long press (500ms): Switch between main layer and settings layer
 
 **I2C Communication:**
 - Tempo synchronization between multiple sequencer units
 - Enables multi-sequencer jam sessions
 - Uses broadcast (no individual addressing required)
+- Access via Settings Layer → I2C mode
 
 **I2C Sync States:**
 - **Standalone**: Default mode, runs on internal tempo
@@ -64,7 +89,7 @@ Mode        A           B              A Long    B Long    LED Pattern
 ```
 [Power ON] → [Standalone]
 
-[Standalone] + Mode long-press → [Primary]
+[Standalone] + A button in I2C mode → [Primary]
   → Broadcasts tempo clock on each step
   → LED: 2 blinks on mode change
 
@@ -72,10 +97,10 @@ Mode        A           B              A Long    B Long    LED Pattern
   → Syncs to received tempo (auto-detect)
   → LED: 3 blinks on mode change
 
-[Primary] + Mode long-press → [Standalone]
+[Primary] + A button in I2C mode → [Standalone]
   → Stops broadcasting
 
-[Secondary] + Mode long-press → [Standalone]
+[Secondary] + A button in I2C mode → [Standalone]
   → Ignores I2C clock
 ```
 
@@ -171,12 +196,16 @@ VCC (5V)
 ```
 
 **ADC reading thresholds** (8-bit ADC, 0-255):
-| Button | Voltage | ADC Range |
-|--------|---------|-----------|
-| A      | 0V      | 0-25      |
-| B      | 0.9V    | 26-60     |
-| Mode   | 1.67V   | 61-120    |
-| None   | 5V      | 200-255   |
+| Button | Voltage | Theoretical | Threshold |
+|--------|---------|-------------|-----------|
+| A      | 0V      | 0           | 0-23      |
+| B      | 0.9V    | ~46         | 24-65     |
+| Mode   | 1.67V   | ~85         | 66-160    |
+| None   | 5V      | 255         | 200-255   |
+
+**Debounce:**
+- Software debounce: 3 consecutive identical readings required
+- No hardware capacitor on sequencer buttons
 
 **Timing:**
 - Short press: < 500ms
@@ -205,11 +234,20 @@ VCC (5V)
 - Synchronized via I2C for multi-sequencer setups
 
 ### Pattern Banks (Bank Mode)
-- A/B buttons switch between pattern banks
-- 8 banks
-- Auto-save at bar end when pattern changes
+- A/B buttons switch between pattern banks (A=down, B=up)
+- 8 banks (0-7, wraps around)
+- Bank switch is scheduled and applied at bar start (step 0)
+- Auto-save current pattern before loading new bank
 
-**EEPROM Layout (Planned):**
+**EEPROM Layout (Current Implementation):**
+```
+Simple layout without wear leveling:
+- 0x00: Magic byte (0xA5 = valid data)
+- 0x01: Current bank number (0-7)
+- 0x02-0x21: 8 banks × 4 bytes = 32 bytes of patterns
+```
+
+**EEPROM Layout (Future - Wear Leveling):**
 ```
 Wear leveling with rotating slots:
 - Slot structure: 1 byte seq + 4 bytes pattern = 5 bytes
@@ -233,7 +271,7 @@ Wear leveling with rotating slots:
 3. ✓ CV voltage encoding: **0V = idle, 0.2-5V = trigger + accent**
 4. ✓ Synthesizer CV input: **PB4 (ADC2)**
 5. ✓ Button count: **3 buttons (A, B, Mode)**
-6. ✓ Mode system: **5 modes (Play, Tempo, Bank, LFO Rate, LFO Depth)**
+6. ✓ Mode system: **2-layer system (Main: Play/Bank, Settings: Tempo/LFO Rate/LFO Depth/I2C)**
 7. ✓ Power supply: **FP6291 boost + diode OR for chain sharing**
 8. ✓ Pattern banks: **8 banks (4 bytes × 8 = 32 bytes EEPROM)**
 
@@ -257,18 +295,19 @@ Wear leveling with rotating slots:
 
 ### Phase 2: Sequencer Core
 - [x] 32-step pattern playback
-- [x] 3-button input (resistor divider ADC + 10nF debounce)
+- [x] 3-button input (resistor divider ADC + software debounce)
 - [x] Play mode with real-time editing (A=add, B=remove)
 - [x] LED beat indicator (beat 1 bright, beat 3 dim)
 - [x] Auto-save to EEPROM at bar end
-- [ ] 5-mode system with LED feedback
+- [x] 2-layer mode system with LED feedback
+- [x] Pattern banks (8 banks, EEPROM storage)
+- [x] Bank mode with scheduled switching (at bar start)
+- [x] Long press actions (M=layer switch, B=pattern clear)
 - [ ] Tempo control (60-240 BPM)
 - [ ] LFO for accent modulation
 
 ### Phase 3: Extended Features
-- [ ] Pattern banks (EEPROM storage)
 - [ ] I2C synchronization (Primary/Secondary)
-- [ ] Long press actions
 
 ### Phase 4: Hardware & Polish
 - [ ] Distortion circuit (NJM2746M)

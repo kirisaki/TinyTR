@@ -16,9 +16,11 @@
 #define CV_PIN PB4
 
 // === Button Thresholds (ADC 0-255) ===
-#define BTN_A_MAX 25
-#define BTN_B_MAX 60
-#define BTN_M_MAX 120
+// Theoretical: A=0, B≈46, M≈85, None=255
+// Midpoints: A-B=23, B-M=65, M-None=160
+#define BTN_A_MAX 23
+#define BTN_B_MAX 65
+#define BTN_M_MAX 160
 #define BTN_NONE_MIN 200
 
 // === Button States ===
@@ -26,6 +28,19 @@
 #define BTN_B 2
 #define BTN_M 3
 #define BTN_NONE 0
+
+// === Modes ===
+// Main layer (toggle with M short press)
+#define MODE_PLAY 0
+#define MODE_BANK 1
+// Settings layer (enter/exit with M long press, cycle with M short press)
+#define MODE_TEMPO 2
+#define MODE_LFO_RATE 3
+#define MODE_LFO_DEPTH 4
+#define MODE_I2C 5
+
+#define SETTINGS_MODE_FIRST MODE_TEMPO
+#define SETTINGS_MODE_LAST MODE_I2C
 
 // === Timing ===
 #define BPM 120
@@ -47,26 +62,109 @@ volatile uint8_t step_triggered = 0; // Flag: step just changed
 volatile uint8_t current_btn = BTN_NONE; // Current button state (for ISR)
 volatile uint8_t pattern_dirty = 0; // Flag: pattern changed, needs save
 
-// === EEPROM ===
+// === Mode ===
+volatile uint8_t current_mode = MODE_PLAY;
+
+// === Bank ===
+#define BANK_COUNT 8
+#define BANK_NO_PENDING 0xFF
+volatile uint8_t current_bank = 0;
+volatile uint8_t pending_bank = BANK_NO_PENDING;  // Bank to switch at next bar
+
+// === EEPROM Layout ===
+// 0x00: Magic byte
+// 0x01: Current bank number
+// 0x02-0x21: 8 banks × 4 bytes = 32 bytes of patterns
 #define EEPROM_MAGIC_ADDR ((uint8_t*)0x00)
 #define EEPROM_MAGIC_VALUE 0xA5
-#define EEPROM_PATTERN_ADDR ((uint32_t*)0x01)
+#define EEPROM_BANK_ADDR ((uint8_t*)0x01)
+#define EEPROM_PATTERNS_BASE ((uint32_t*)0x02)
+#define EEPROM_PATTERN_ADDR(bank) ((uint32_t*)(0x02 + (bank) * 4))
 
 // === CV Auto-off Timing ===
 #define CV_GATE_MS 10
 
+// === Bank Switch ===
+// Schedule bank switch at next pattern start (step 0)
+static void schedule_bank_switch(uint8_t new_bank)
+{
+    if (new_bank >= BANK_COUNT) return;
+    if (new_bank == current_bank) {
+        pending_bank = BANK_NO_PENDING;  // Cancel pending switch
+        return;
+    }
+    pending_bank = new_bank;
+}
+
+// Apply pending bank switch (call at step 0)
+static void apply_pending_bank(void)
+{
+    if (pending_bank == BANK_NO_PENDING) return;
+    if (pending_bank >= BANK_COUNT) {
+        pending_bank = BANK_NO_PENDING;
+        return;
+    }
+
+    // Save current pattern to current bank
+    eeprom_update_dword(EEPROM_PATTERN_ADDR(current_bank), pattern);
+
+    // Load new bank's pattern
+    current_bank = pending_bank;
+    pattern = eeprom_read_dword(EEPROM_PATTERN_ADDR(current_bank));
+
+    // Save current bank number
+    eeprom_update_byte(EEPROM_BANK_ADDR, current_bank);
+
+    pending_bank = BANK_NO_PENDING;
+    pattern_dirty = 0;  // Just loaded, not dirty
+}
+
 // === LED Update ===
 static inline void update_led(uint8_t step)
 {
-    // Bar 2 beat 1: 8th note blink (steps 16,18 on / 17,19 off)
-    if (step >= 16 && step < 20) {
-        OCR1A = (step & 0x01) ? 0 : LED_BAR_HEAD;
-    } else if ((step & 0x03) != 0) {
-        OCR1A = 0;  // Non-beat steps: off
-    } else if (step == 0) {
-        OCR1A = LED_BAR_HEAD;  // Bar 1 start: bright
-    } else {
-        OCR1A = LED_BEAT;  // Other beats: dim
+    switch (current_mode) {
+    case MODE_PLAY:
+        // Bar 2 beat 1: 8th note blink (steps 16,18 on / 17,19 off)
+        if (step >= 16 && step < 20) {
+            OCR1A = (step & 0x01) ? 0 : LED_BAR_HEAD;
+        } else if ((step & 0x03) != 0) {
+            OCR1A = 0;  // Non-beat steps: off
+        } else if (step == 0) {
+            OCR1A = LED_BAR_HEAD;  // Bar 1 start: bright
+        } else {
+            OCR1A = LED_BEAT;  // Other beats: dim
+        }
+        break;
+
+    case MODE_TEMPO:
+        // Flash on downbeat only (step 0 and 16)
+        OCR1A = ((step & 0x0F) == 0) ? LED_BAR_HEAD : 0;
+        break;
+
+    case MODE_BANK:
+        // Inverted pattern: bar head same, others inverted
+        // Bar 2 beat 1: 8th note blink (same as Play)
+        if (step >= 16 && step < 20) {
+            OCR1A = (step & 0x01) ? 0 : LED_BAR_HEAD;
+        } else if ((step & 0x03) != 0) {
+            OCR1A = LED_BEAT;  // Non-beat steps: dim (inverted from Play)
+        } else if (step == 0) {
+            OCR1A = LED_BAR_HEAD;  // Bar 1 start: bright (same as Play)
+        } else {
+            OCR1A = 0;  // Other beats: off (inverted from Play)
+        }
+        break;
+
+    case MODE_LFO_RATE:
+    case MODE_LFO_DEPTH:
+        // TODO: LFO-based LED patterns
+        OCR1A = LED_BEAT;
+        break;
+
+    case MODE_I2C:
+        // Double blink pattern
+        OCR1A = ((step & 0x03) < 2) ? LED_BAR_HEAD : 0;
+        break;
     }
 }
 
@@ -75,11 +173,12 @@ static inline void update_cv(uint8_t step)
 {
     uint8_t should_play;
 
-    if (current_btn == BTN_A) {
+    // Pattern editing only in Play mode
+    if (current_mode == MODE_PLAY && current_btn == BTN_A) {
         should_play = 1;
         pattern |= (1UL << step);
         pattern_dirty = 1;
-    } else if (current_btn == BTN_B) {
+    } else if (current_mode == MODE_PLAY && current_btn == BTN_B) {
         should_play = 0;
         pattern &= ~(1UL << step);
         pattern_dirty = 1;
@@ -112,17 +211,38 @@ ISR(TIMER0_COMPA_vect)
     }
 }
 
-// === Get Button State ===
+// === Get Button State (with debounce) ===
+#define DEBOUNCE_COUNT 3
 uint8_t get_button(void)
 {
+    static uint8_t stable_btn = BTN_NONE;
+    static uint8_t last_raw = BTN_NONE;
+    static uint8_t match_count = 0;
+
+    // Read raw button
     uint8_t val = read_adc(BTN_CH);
+    uint8_t raw;
     if (val <= BTN_A_MAX)
-        return BTN_A;
-    if (val <= BTN_B_MAX)
-        return BTN_B;
-    if (val <= BTN_M_MAX)
-        return BTN_M;
-    return BTN_NONE;
+        raw = BTN_A;
+    else if (val <= BTN_B_MAX)
+        raw = BTN_B;
+    else if (val <= BTN_M_MAX)
+        raw = BTN_M;
+    else
+        raw = BTN_NONE;
+
+    // Debounce: require consecutive matches
+    if (raw == last_raw) {
+        if (match_count < DEBOUNCE_COUNT)
+            match_count++;
+        if (match_count >= DEBOUNCE_COUNT)
+            stable_btn = raw;
+    } else {
+        last_raw = raw;
+        match_count = 0;
+    }
+
+    return stable_btn;
 }
 
 // === Setup ===
@@ -153,17 +273,28 @@ void setup(void)
 // === Main ===
 int main(void)
 {
-    // Load pattern from EEPROM (check magic byte for valid data)
+    // Load bank and pattern from EEPROM (check magic byte for valid data)
     if (eeprom_read_byte(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC_VALUE) {
-        pattern = eeprom_read_dword(EEPROM_PATTERN_ADDR);
+        current_bank = eeprom_read_byte(EEPROM_BANK_ADDR);
+        if (current_bank >= BANK_COUNT) current_bank = 0;
+        pattern = eeprom_read_dword(EEPROM_PATTERN_ADDR(current_bank));
     } else {
-        pattern = 0x00000000;  // First boot: empty pattern
+        // First boot: initialize EEPROM
+        eeprom_update_byte(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE);
+        eeprom_update_byte(EEPROM_BANK_ADDR, 0);
+        for (uint8_t i = 0; i < BANK_COUNT; i++) {
+            eeprom_update_dword(EEPROM_PATTERN_ADDR(i), 0x00000000);
+        }
+        current_bank = 0;
+        pattern = 0x00000000;
     }
 
     setup();
 
     uint8_t prev_step = 0;
+    uint8_t prev_btn = BTN_NONE;
     uint16_t b_hold_time = 0;  // B button hold duration in ms
+    uint16_t m_hold_time = 0;  // M button hold duration in ms
     uint16_t last_tick = 0;
 
     while (1)
@@ -176,8 +307,8 @@ int main(void)
         uint16_t elapsed = (now >= last_tick) ? (now - last_tick) : (now + MS_PER_STEP - last_tick);
         last_tick = now;
 
-        // B long press (2 sec) = clear pattern
-        if (current_btn == BTN_B) {
+        // B long press (2 sec) = clear pattern (only in Play mode)
+        if (current_mode == MODE_PLAY && current_btn == BTN_B) {
             b_hold_time += elapsed;
             if (b_hold_time >= 2000) {
                 pattern = 0x00000000;
@@ -188,15 +319,65 @@ int main(void)
             b_hold_time = 0;
         }
 
-        // Auto-save at pattern end (step 31→0) if pattern changed
+        // Mode button handling
+        if (current_btn == BTN_M) {
+            m_hold_time += elapsed;
+        } else {
+            if (prev_btn == BTN_M) {
+                // M button released
+                if (m_hold_time < 500) {
+                    // Short press: toggle/cycle within layer
+                    if (current_mode == MODE_PLAY) {
+                        current_mode = MODE_BANK;
+                    } else if (current_mode == MODE_BANK) {
+                        current_mode = MODE_PLAY;
+                    } else {
+                        // Settings layer: cycle through settings modes
+                        current_mode = (current_mode >= SETTINGS_MODE_LAST)
+                            ? SETTINGS_MODE_FIRST
+                            : current_mode + 1;
+                    }
+                } else {
+                    // Long press: switch between main/settings layer
+                    if (current_mode <= MODE_BANK) {
+                        // Main → Settings (enter at Tempo)
+                        current_mode = MODE_TEMPO;
+                    } else {
+                        // Settings → Main (return to Play)
+                        current_mode = MODE_PLAY;
+                    }
+                }
+            }
+            m_hold_time = 0;  // Always reset when not pressing M
+        }
+
+        // Bank mode: A/B buttons change bank (on release)
+        if (current_mode == MODE_BANK) {
+            if (prev_btn == BTN_A && current_btn != BTN_A) {
+                // A released: bank down (with wrap)
+                uint8_t target = (pending_bank != BANK_NO_PENDING) ? pending_bank : current_bank;
+                schedule_bank_switch((target + BANK_COUNT - 1) % BANK_COUNT);
+            } else if (prev_btn == BTN_B && current_btn != BTN_B) {
+                // B released: bank up (with wrap)
+                uint8_t target = (pending_bank != BANK_NO_PENDING) ? pending_bank : current_bank;
+                schedule_bank_switch((target + 1) % BANK_COUNT);
+            }
+        }
+        prev_btn = current_btn;
+
+        // Pattern start (step 31→0): apply pending bank switch and auto-save
         uint8_t step = current_step;  // Read once (volatile)
-        if (step == 0 && prev_step == 31 && pattern_dirty) {
-            eeprom_update_byte(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE);
-            eeprom_update_dword(EEPROM_PATTERN_ADDR, pattern);
-            pattern_dirty = 0;
+        if (step == 0 && prev_step == 31) {
+            // Apply pending bank switch first
+            apply_pending_bank();
+
+            // Auto-save if pattern changed
+            if (pattern_dirty) {
+                eeprom_update_byte(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE);
+                eeprom_update_dword(EEPROM_PATTERN_ADDR(current_bank), pattern);
+                pattern_dirty = 0;
+            }
         }
         prev_step = step;
-
-        // M: reserved for mode switch (later)
     }
 }
