@@ -43,9 +43,14 @@
 #define SETTINGS_MODE_LAST MODE_ETC
 
 // === Timing ===
-#define BPM 120
+#define BPM_DEFAULT 120
+#define BPM_MIN 60
+#define BPM_MAX 240
+#define BPM_STEP 5
 #define STEPS_PER_BEAT 4
-#define MS_PER_STEP (60000 / BPM / STEPS_PER_BEAT) // 125ms
+volatile uint8_t current_bpm = BPM_DEFAULT;
+volatile uint8_t bpm_dirty = 0;
+#define MS_PER_STEP() (60000UL / current_bpm / STEPS_PER_BEAT)
 
 // === CV Output ===
 #define CV_ACCENT 255 // Full accent for now (LFO later)
@@ -75,11 +80,13 @@ volatile uint8_t pending_bank = BANK_NO_PENDING;  // Bank to switch at next bar
 // 0x00: Magic byte
 // 0x01: Current bank number
 // 0x02-0x21: 8 banks × 4 bytes = 32 bytes of patterns
+// 0x22: BPM
 #define EEPROM_MAGIC_ADDR ((uint8_t*)0x00)
 #define EEPROM_MAGIC_VALUE 0xA5
 #define EEPROM_BANK_ADDR ((uint8_t*)0x01)
 #define EEPROM_PATTERNS_BASE ((uint32_t*)0x02)
 #define EEPROM_PATTERN_ADDR(bank) ((uint32_t*)(0x02 + (bank) * 4))
+#define EEPROM_BPM_ADDR ((uint8_t*)0x22)
 
 // === CV Auto-off Timing ===
 #define CV_GATE_MS 10
@@ -195,7 +202,7 @@ ISR(TIMER0_COMPA_vect)
 {
     tick_count++;
 
-    if (tick_count >= MS_PER_STEP)
+    if (tick_count >= MS_PER_STEP())
     {
         tick_count = 0;
         step_triggered = 1;
@@ -274,11 +281,13 @@ void setup(void)
 // === Main ===
 int main(void)
 {
-    // Load bank and pattern from EEPROM (check magic byte for valid data)
+    // Load settings from EEPROM (check magic byte for valid data)
     if (eeprom_read_byte(EEPROM_MAGIC_ADDR) == EEPROM_MAGIC_VALUE) {
         current_bank = eeprom_read_byte(EEPROM_BANK_ADDR);
         if (current_bank >= BANK_COUNT) current_bank = 0;
         pattern = eeprom_read_dword(EEPROM_PATTERN_ADDR(current_bank));
+        current_bpm = eeprom_read_byte(EEPROM_BPM_ADDR);
+        if (current_bpm < BPM_MIN || current_bpm > BPM_MAX) current_bpm = BPM_DEFAULT;
     } else {
         // First boot: initialize EEPROM
         eeprom_update_byte(EEPROM_MAGIC_ADDR, EEPROM_MAGIC_VALUE);
@@ -286,8 +295,10 @@ int main(void)
         for (uint8_t i = 0; i < BANK_COUNT; i++) {
             eeprom_update_dword(EEPROM_PATTERN_ADDR(i), 0x00000000);
         }
+        eeprom_update_byte(EEPROM_BPM_ADDR, BPM_DEFAULT);
         current_bank = 0;
         pattern = 0x00000000;
+        current_bpm = BPM_DEFAULT;
     }
 
     setup();
@@ -305,7 +316,7 @@ int main(void)
 
         // Calculate elapsed time since last loop
         uint16_t now = tick_count;
-        uint16_t elapsed = (now >= last_tick) ? (now - last_tick) : (now + MS_PER_STEP - last_tick);
+        uint16_t elapsed = (now >= last_tick) ? (now - last_tick) : (now + MS_PER_STEP() - last_tick);
         last_tick = now;
 
         // B long press = clear pattern (only in Play mode, blocked during pending)
@@ -326,6 +337,7 @@ int main(void)
         } else {
             if (prev_btn == BTN_M) {
                 // M button released
+                uint8_t prev_mode = current_mode;
                 if (m_hold_time < 500) {
                     // Short press: toggle/cycle within layer
                     if (current_mode == MODE_PLAY) {
@@ -348,6 +360,11 @@ int main(void)
                         current_mode = MODE_PLAY;
                     }
                 }
+                // Save BPM when leaving Tempo mode
+                if (prev_mode == MODE_TEMPO && current_mode != MODE_TEMPO && bpm_dirty) {
+                    eeprom_update_byte(EEPROM_BPM_ADDR, current_bpm);
+                    bpm_dirty = 0;
+                }
             }
             m_hold_time = 0;  // Always reset when not pressing M
         }
@@ -363,6 +380,38 @@ int main(void)
                 uint8_t target = (pending_bank != BANK_NO_PENDING) ? pending_bank : current_bank;
                 schedule_bank_switch((target + 1) % BANK_COUNT);
             }
+        }
+
+        // Tempo mode: A/B buttons change BPM (hold to repeat)
+        static uint16_t tempo_hold_time = 0;
+        #define TEMPO_REPEAT_MS 200
+        if (current_mode == MODE_TEMPO && (current_btn == BTN_A || current_btn == BTN_B)) {
+            uint8_t do_change = 0;
+            if (prev_btn != current_btn) {
+                // Button just pressed: immediate change
+                do_change = 1;
+                tempo_hold_time = 0;
+            } else {
+                // Button held: repeat after interval
+                tempo_hold_time += elapsed;
+                if (tempo_hold_time >= TEMPO_REPEAT_MS) {
+                    tempo_hold_time = 0;
+                    do_change = 1;
+                }
+            }
+            if (do_change) {
+                if (current_btn == BTN_A && current_bpm > BPM_MIN) {
+                    current_bpm -= BPM_STEP;
+                    if (current_bpm < BPM_MIN) current_bpm = BPM_MIN;
+                    bpm_dirty = 1;
+                } else if (current_btn == BTN_B && current_bpm < BPM_MAX) {
+                    current_bpm += BPM_STEP;
+                    if (current_bpm > BPM_MAX) current_bpm = BPM_MAX;
+                    bpm_dirty = 1;
+                }
+            }
+        } else {
+            tempo_hold_time = 0;
         }
         prev_btn = current_btn;
 
