@@ -39,7 +39,7 @@ int main(void)
         // Rising edge (LOW -> HIGH) = trigger current voice with accent
         if (curr_state && !prev_state) {
             // Accent: CV voltage scales volume (min 25%, max 100%)
-            // CV 10-255 maps to 16384-65535
+            // CV 10-255 maps to 16384-65384
             uint16_t accent_vol = 16384 + ((uint16_t)(cv - CV_THRESHOLD_ON) * 200);
             cli();
             trigger_current_voice_with_accent(accent_vol);

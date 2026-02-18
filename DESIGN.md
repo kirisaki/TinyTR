@@ -16,9 +16,9 @@ This document describes the hardware and communication design.
 
 **Pin Assignment:**
 ```
-PB0 (Pin 5): SDA (I2C communication with other sequencers)
+PB0 (Pin 5): SDA (reserved for I2C, currently unused)
 PB1 (Pin 6): LED output (rhythm/mode indicator)
-PB2 (Pin 7): SCL (I2C communication with other sequencers)
+PB2 (Pin 7): SCL (reserved for I2C, currently unused)
 PB3 (Pin 2): Button input (ADC3, resistor divider)
 PB4 (Pin 3): CV output to synthesizer (Timer1 OC1B PWM)
 ```
@@ -50,9 +50,9 @@ Mode        A           B              A Long      B Long      LED Pattern
 ────────────────────────────────────────────────────────────────────────────────
 Play        Step ON     Step OFF       -           Clear       Bar head bright, beats dim, off otherwise
 Bank        Bank ↓      Bank ↑         -           -           Bar head bright, beats off, dim otherwise
-Tempo       BPM ↓       BPM ↑          -           -           Flash on downbeat
-LFO Rate    Rate ↓      Rate ↑         -           -           Blink at LFO freq
-LFO Depth   Depth ↓     Depth ↑        -           -           PWM brightness
+Tempo       BPM ↓       BPM ↑          -           -           Flash on every beat
+LFO Rate    Rate ↓      Rate ↑         -           -           (planned) Blink at LFO freq
+LFO Depth   Depth ↓     Depth ↑        -           -           (planned) PWM brightness
 Etc         -           -              I2C toggle  All clear   Double blink
 ```
 
@@ -74,7 +74,7 @@ Others      Off         Dim
 - Short press: Toggle Play↔Bank (main layer) / Cycle settings (settings layer)
 - Long press (500ms): Switch between main layer and settings layer
 
-**Etc Mode (Miscellaneous Settings):**
+**Etc Mode (Miscellaneous Settings):** *(planned, not yet implemented)*
 - A long press: Toggle I2C master mode
 - B long press: Clear all 8 banks (full reset)
 
@@ -209,11 +209,12 @@ VCC (5V)
 
 **Debounce:**
 - Software debounce: 3 consecutive identical readings required
-- No hardware capacitor on sequencer buttons
+- Hardware: 10nF capacitor on button input
 
 **Timing:**
 - Short press: < 500ms
-- Long press: ≥ 500ms
+- Long press (Mode): ≥ 500ms
+- Long press (B clear): ≥ 1200ms
 
 ## Sequencer Functionality
 
@@ -233,9 +234,10 @@ VCC (5V)
   - Bar head (step 0,16,18): bright / Other beats: dim
 
 ### Tempo Control (Tempo Mode)
-- A/B buttons adjust tempo
-- Range: 60-240 BPM (typical)
-- Synchronized via I2C for multi-sequencer setups
+- A/B buttons adjust BPM (step: 5, hold-to-repeat: 200ms)
+- Range: 60-240 BPM
+- BPM saved to EEPROM on mode exit
+- Future: Synchronized via I2C for multi-sequencer setups
 
 ### Pattern Banks (Bank Mode)
 - A/B buttons switch between pattern banks (A=down, B=up)
@@ -249,6 +251,7 @@ Simple layout without wear leveling:
 - 0x00: Magic byte (0xA5 = valid data)
 - 0x01: Current bank number (0-7)
 - 0x02-0x21: 8 banks × 4 bytes = 32 bytes of patterns
+- 0x22: BPM value (60-240)
 ```
 
 **EEPROM Layout (Future - Wear Leveling):**
@@ -262,7 +265,7 @@ Wear leveling with rotating slots:
 - Lifespan: 102× improvement (~5500 hours continuous editing)
 ```
 
-### LFO Control
+### LFO Control *(planned, not yet implemented)*
 - **LFO Rate Mode**: A/B adjust LFO frequency
 - **LFO Depth Mode**: A/B adjust LFO intensity
 - LFO modulates CV output voltage (accent)
@@ -275,7 +278,7 @@ Wear leveling with rotating slots:
 3. ✓ CV voltage encoding: **0V = idle, 0.2-5V = trigger + accent**
 4. ✓ Synthesizer CV input: **PB4 (ADC2)**
 5. ✓ Button count: **3 buttons (A, B, Mode)**
-6. ✓ Mode system: **2-layer system (Main: Play/Bank, Settings: Tempo/LFO Rate/LFO Depth/I2C)**
+6. ✓ Mode system: **2-layer system (Main: Play/Bank, Settings: Tempo/LFO Rate/LFO Depth/Etc)**
 7. ✓ Power supply: **FP6291 boost + diode OR for chain sharing**
 8. ✓ Pattern banks: **8 banks (4 bytes × 8 = 32 bytes EEPROM)**
 
@@ -289,7 +292,7 @@ Wear leveling with rotating slots:
 
 ## Development Phases
 
-### Phase 1: Voice Synthesis & Communication (Current)
+### Phase 1: Voice Synthesis & Communication
 - [x] Voice synthesis engine (kick, snare, hi-hat, clap, tom, cowbell)
 - [x] PWM audio output at 250kHz
 - [x] 20kHz sampling mixer
@@ -297,17 +300,17 @@ Wear leveling with rotating slots:
 - [x] CV input on synthesizer (ADC)
 - [x] Test single voice trigger via CV
 
-### Phase 2: Sequencer Core
+### Phase 2: Sequencer Core (Current)
 - [x] 32-step pattern playback
 - [x] 3-button input (resistor divider ADC + software debounce)
 - [x] Play mode with real-time editing (A=add, B=remove)
-- [x] LED beat indicator (beat 1 bright, beat 3 dim)
+- [x] LED beat indicator (bar head bright, beats dim, bar 2 beat 1 eighth-note blink)
 - [x] Auto-save to EEPROM at bar end
 - [x] 2-layer mode system with LED feedback
 - [x] Pattern banks (8 banks, EEPROM storage)
 - [x] Bank mode with scheduled switching (at bar start)
 - [x] Long press actions (M=layer switch, B=pattern clear)
-- [ ] Tempo control (60-240 BPM)
+- [x] Tempo control (60-240 BPM, step 5, EEPROM save)
 - [ ] LFO for accent modulation
 
 ### Phase 3: Extended Features
